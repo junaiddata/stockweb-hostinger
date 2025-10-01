@@ -14,7 +14,7 @@ app.secret_key = "junaid2365"  # Required for session cookies
 
 # Example: hardcoded users (can be moved to DB)
 USERS = {
-    "admin": generate_password_hash("junaid2134"),  # Hashed password
+    "admin": generate_password_hash("junaid6231"),  # Hashed password
     "staff": generate_password_hash("staff123")
 }
 
