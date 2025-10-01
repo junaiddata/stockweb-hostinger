@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Search - {{ branch|title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0d47a1; /* Deep Blue */
+            --secondary-color: #1976d2; /* Lighter Blue */
+            --background-color: #f4f7f9;
+            --card-background: #ffffff;
+            --text-color: #333;
+            --text-light: #666;
+            --border-color: #e0e0e0;
+            --success-color: #2e7d32;
+            --error-color: #d32f2f;
+            --white-color: #fff;
+            --shadow-light: rgba(0, 0, 0, 0.05);
+            --shadow-medium: rgba(0, 0, 0, 0.1);
+            --border-radius: 12px;
+        }
+
+        /* General Reset & Body Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            display: flex;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: var(--white-color);
+            padding: 1rem 1.5rem;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            border-radius: var(--border-radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            box-shadow: 0 4px 15px var(--shadow-medium);
+        }
+
+        header img {
+            width: 80px;
+            height: auto;
+        }
+
+        /* Search Section */
+        .search-section {
+            background: var(--card-background);
+            padding: 1.5rem;
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 15px var(--shadow-light);
+        }
+        
+        .search-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 50px 12px 20px;
+            font-size: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 25px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 8px rgba(13, 71, 161, 0.2);
+        }
+
+        #voiceSearchBtn {
+            position: absolute;
+            right: 5px;
+            width: 40px;
+            height: 40px;
+            background: none;
+            border: none;
+            color: var(--text-light);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #voiceSearchBtn:hover {
+            color: var(--primary-color);
+            background-color: #f0f0f0;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        /* Custom Toggle Switch */
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            color: var(--text-light);
+            cursor: pointer;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            background-color: #ccc;
+            border-radius: 22px;
+            transition: background-color 0.3s;
+            margin-right: 10px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary-color);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(18px);
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            max-width: 150px;
+            padding: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: var(--white-color);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(13, 71, 161, 0.2);
+        }
+
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(13, 71, 161, 0.3);
+        }
+        
+        /* Disclaimer Footer */
+        footer {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-top: 1rem;
+        }
+
+        /* Results Section */
+        .results-section {
+            margin-top: 1rem;
+        }
+
+        h3 {
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 2rem;
+            background: var(--card-background);
+            border-radius: var(--border-radius);
+            color: var(--text-light);
+        }
+
+        /* Card Styles (Mobile First) */
+        .results-cards-container {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .result-card {
+            background: var(--card-background);
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 15px var(--shadow-light);
+            padding: 1rem;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            text-decoration: none;
+            color: inherit;
+            border-left: 5px solid var(--secondary-color);
+        }
+        
+        .result-card.zero-stock {
+            border-left-color: var(--error-color);
+        }
+
+        .result-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 20px var(--shadow-medium);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        
+        .card-header .description {
+            font-weight: 600;
+            font-size: 1.1rem;
+            padding-right: 1rem;
+        }
+
+        .stock-badge {
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.25rem 0.75rem;
+            border-radius: 15px;
+            color: var(--white-color);
+            white-space: nowrap;
+        }
+
+        .in-stock {
+            background-color: var(--success-color);
+            color: var(--white-color);
+        }
+        
+        .out-of-stock {
+            background-color: var(--error-color);
+        }
+        
+        .card-body p {
+            font-size: 0.9rem;
+            color: var(--text-light);
+            margin-bottom: 0.25rem;
+        }
+        
+        .card-body p strong {
+            color: var(--text-color);
+            font-weight: 500;
+        }
+
+        /* Table Styles (Desktop) */
+        .results-table {
+            display: none; /* Hidden by default */
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-background);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: 0 4px 15px var(--shadow-light);
+        }
+
+        .results-table th {
+            background: var(--primary-color);
+            color: var(--white-color);
+            padding: 1rem;
+            text-align: left;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .results-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.95rem;
+        }
+
+        .results-table tbody tr {
+            transition: background-color 0.2s ease;
+        }
+        
+        .results-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .results-table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .results-table a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .results-table a:hover {
+            text-decoration: underline;
+        }
+
+        /* Media Query for switching between cards and table */
+        @media (min-width: 768px) {
+            .results-cards-container {
+                display: none;
+            }
+            .results-table {
+                display: table;
+            }
+            .controls {
+                justify-content: flex-end; /* Align controls to the right on desktop */
+            }
+            button[type="submit"] {
+                width: auto; /* Auto width on larger screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Company Logo">
+            <span>Stock Search - {{ branch|title }}</span>
+        </header>
+
+        <main>
+            <section class="search-section">
+                <form method="post" id="searchForm">
+                    <div class="search-input-wrapper">
+                        <input type="text" name="query" placeholder="Enter Item Code, UPC, or Description" value="{{ query }}" autocomplete="off">
+                        <button type="button" id="voiceSearchBtn" aria-label="Search by voice">🎤</button>
+                    </div>
+                    <div class="controls">
+                         <label class="toggle-switch">
+                            <input type="checkbox" id="hideZeroStock" name="hideZeroStock" {% if hide_zero_stock %}checked{% endif %}>
+                            <span class="slider"></span>
+                            Hide zero stock items
+                        </label>
+                        <button type="submit">Search</button>
+                    </div>
+                </form>
+            </section>
+        
+            {% if results is not none %}
+            <section class="results-section">
+                <h3>Results:</h3>
+                {% if results|length == 0 %}
+                    <p class="no-results">❌ No matching results found.</p>
+                {% else %}
+                    <div class="results-cards-container">
+                        {% for item in results %}
+                        <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}" class="result-card {% if item[5] == 0 %}zero-stock{% endif %}">
+                            <div class="card-header">
+                                <span class="description">{{ item[2] }}</span>
+                                <span class="stock-badge {% if item[5] > 0 %}in-stock{% else %}out-of-stock{% endif %}">
+                                    {% if item[5] > 0 %}
+                                        In Stock
+                                    {% else %}
+                                        Out of Stock
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div class="card-body">
+                                <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[6] }}</p>
+                                <p><strong>Item Code:</strong> {{ item[0] }}</p>
+                                <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+                                <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
+                                {% if session.username %}
+                                <p><strong>Cost Price:</strong> {{ item[8] }} AED</p>
+                                {% endif %}
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+        
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>UPC</th>
+                                <th>Description</th>
+                                <th>Stock</th>
+                                <th>Free Stock</th>
+                                <th>Min. Price</th>
+                                {% if session.username %}
+                                <th>Cost Price</th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in results %}
+                            <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
+                                <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
+                                <td>{{ item[1] }}</td>
+                                <td>{{ item[2] }}</td>
+                                <td>
+                                    
+                                        {{ item[5] }}
+                                    
+                                </td>
+                                <td>{{ item[6] }}</td>
+                                <td>{{ item[7] }} AED</td>
+                                {% if session.username %}
+                                <td>{{ item[8] }} AED</td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endif %}
+            </section>
+            {% endif %}
+        </main>
+        
+        <footer>
+            <p>*For locally purchased items, prices may vary. Please confirm with the Purchase Executive before finalizing the order.</p>
+        </footer>
+    </div>
+
+    <script>
+        // Function to hide rows/cards with zero stock quantity
+        function hideZeroStockItems() {
+            const isChecked = document.getElementById("hideZeroStock").checked;
+            const zeroStockItems = document.querySelectorAll(".zero-stock");
+            zeroStockItems.forEach(item => {
+                item.style.display = isChecked ? "none" : "";
+            });
+        }
+        
+        // Attach event listener to the checkbox
+        document.getElementById("hideZeroStock").addEventListener("change", hideZeroStockItems);
+        
+        // Run the function on page load to set the initial state
+        window.addEventListener("load", hideZeroStockItems);
+
+        // --- Voice Search Functionality (Unchanged) ---
+        function startVoiceSearch() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert("Your browser does not support voice search. Please use Google Chrome.");
+                return;
+            }
+            
+            let SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            let recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            console.log("🎤 Voice recognition started...");
+            const voiceBtn = document.getElementById("voiceSearchBtn");
+            voiceBtn.innerHTML = "🎧"; // Using a different icon for listening state
+
+            recognition.onresult = function(event) {
+                let speechResult = event.results[0][0].transcript;
+                console.log("✅ Voice Input: ", speechResult);
+                document.querySelector("input[name='query']").value = speechResult;
+                document.getElementById("searchForm").submit();
+            };
+
+            recognition.onerror = function(event) {
+                console.error("❌ Speech Recognition Error: ", event.error);
+                alert("Error: " + event.error);
+            };
+
+            recognition.onend = function() {
+                voiceBtn.innerHTML = "🎤";
+                console.log("🛑 Voice recognition ended.");
+            };
+
+            recognition.start();
+        }
+
+        // Attach event listener to the voice search button
+        document.getElementById("voiceSearchBtn").addEventListener("click", startVoiceSearch);
+    </script>
+</body>
+</html>

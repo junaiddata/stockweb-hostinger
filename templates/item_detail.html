@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Details - {{ item.Description if item else 'Not Found' }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0d47a1; /* Deep Blue */
+            --secondary-color: #1976d2; /* Lighter Blue */
+            --background-color: #f4f7f9;
+            --card-background: #ffffff;
+            --text-color: #333;
+            --text-light: #6c757d;
+            --border-color: #e0e0e0;
+            --success-color: #2e7d32;
+            --error-color: #d32f2f;
+            --white-color: #fff;
+            --shadow-light: rgba(0, 0, 0, 0.05);
+            --shadow-medium: rgba(0, 0, 0, 0.1);
+            --border-radius: 12px;
+        }
+
+        /* General Reset & Body Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            display: flex;
+            justify-content: center;
+            padding: 1rem;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: var(--white-color);
+            padding: 1rem 1.5rem;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            border-radius: var(--border-radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            box-shadow: 0 4px 15px var(--shadow-medium);
+        }
+
+        /* Details Card */
+        .details-card {
+            background: var(--card-background);
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 20px var(--shadow-light);
+            text-align: left;
+        }
+
+        .item-header h2 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .item-header .sub-heading {
+            color: var(--text-light);
+            font-size: 0.9rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Key Stats Section */
+        .key-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .stat .label {
+            font-size: 0.9rem;
+            color: var(--text-light);
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat .value {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+
+        /* Change border and text color for stock */
+        .stat.stock-stat .value {
+            color: var(--success-color);
+        }
+        .stat.stock-stat {
+            border-left-color: var(--success-color);
+        }
+
+        /* Item Info Section */
+        .item-info dl {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            gap: 0.75rem 1.5rem;
+        }
+
+        .item-info dt {
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        .item-info dd {
+            color: var(--text-light);
+        }
+
+        /* Back Link */
+        .back-link {
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 10px 25px;
+            background: transparent;
+            color: var(--primary-color);
+            text-decoration: none;
+            border-radius: 25px;
+            border: 2px solid var(--primary-color);
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .back-link:hover {
+            background: var(--primary-color);
+            color: var(--white-color);
+        }
+
+        /* Error Message */
+        .error-message {
+            text-align: center;
+            padding: 2rem;
+            font-size: 1.2rem;
+            color: var(--error-color);
+            font-weight: 500;
+        }
+        
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <header>📦 Stock Details</header>
+
+        <main>
+            <div class="details-card">
+                {% if item %}
+                    <div class="item-header">
+                        <h2>{{ item.Description }}</h2>
+                        <p class="sub-heading">
+                            <strong>Item Code:</strong> {{ item.ItemCode }} | 
+                            <strong>UPC:</strong> {{ item.UpcCode }}
+                        </p>
+                    </div>
+
+                    <div class="key-stats">
+                        <div class="stat stock-stat">
+                            <span class="label">Stock Quantity</span>
+                            <span class="value">{{ item.StockQuantity }}</span>
+                        </div>
+                        <div class="stat stock-stat">
+                            <span class="label">Free Stock</span>
+                            <span class="value">{{ item.FreeStock }}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">Min. Price (AED)</span>
+                            <span class="value">{{ item.MinSellingPrice }}</span>
+                        </div>
+                        {% if session.username %}
+                        <div class="stat">
+                            <span class="label">Cost Price (AED)</span>
+                            <span class="value"> -- </span>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="item-info">
+                        <dl>
+                            <dt>Manufacturer:</dt>
+                            <dd>{{ item.ManufacturerName }}</dd>
+                            <dt>Warehouse:</dt>
+                            <dd>{{ item.WarehouseCode }}</dd>
+                        </dl>
+                    </div>
+                {% else %}
+                    <p class="error-message">❌ Item not found.</p>
+                {% endif %}
+            </div>
+
+            <a href="javascript:history.back()" class="back-link">🔙 Back</a>
+        </main>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Stock Data</title>
+    <style>
+        /* General Styles */
+        body {
+            font-family: 'Poppins', Arial, sans-serif;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h2 {
+            background: linear-gradient(135deg, #1a237e, #0056b3);
+            color: white;
+            padding: 15px;
+            margin: 0;
+            text-align: center;
+            font-size: 24px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            animation: fadeIn 1s ease-in-out;
+            width: 100%;
+        }
+        form {
+            background: white;
+            padding: 20px;
+            margin: 20px auto;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease;
+        }
+        form:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+        }
+        input[type="file"] {
+            width: calc(100% - 20px);
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #1a237e;
+            border-radius: 25px;
+            outline: none;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+        input[type="file"]:focus {
+            border-color: #0056b3;
+            box-shadow: 0 0 10px rgba(0, 119, 255, 0.5);
+            transform: scale(1.02);
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            background: linear-gradient(135deg, #1a237e, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        button:hover {
+            background: linear-gradient(135deg, #0056b3, #1a237e);
+            transform: scale(1.05);
+        }
+        .back-btn {
+            margin-top: 20px;
+            display: inline-block;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .back-btn:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+            h2 {
+                font-size: 20px;
+                padding: 10px;
+            }
+            form {
+                padding: 15px;
+            }
+            input[type="file"] {
+                font-size: 14px;
+                padding: 10px;
+            }
+            button {
+                font-size: 14px;
+                padding: 10px;
+            }
+            .back-btn {
+                font-size: 14px;
+                padding: 8px 15px;
+            }
+        }
+        @media (max-width: 480px) {
+            h2 {
+                font-size: 18px;
+                padding: 8px;
+            }
+            form {
+                padding: 10px;
+            }
+            input[type="file"] {
+                font-size: 12px;
+                padding: 8px;
+            }
+            button {
+                font-size: 12px;
+                padding: 8px;
+            }
+            .back-btn {
+                font-size: 12px;
+                padding: 6px 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <h2>Upload Stock Data File</h2>
+    File name should be 'stock_details'
+    The File should contain sheets named 'OUTPU_RAS' and 'OUTPUT_DIP'
+
+    <!-- Upload Form -->
+    <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <button type="submit">Upload</button>
+    </form>
+
+    <!-- Back Button -->
+    <a href="{{ url_for('home') }}" class="back-btn">🔙 Back to Home</a>
+</body>
+</html>

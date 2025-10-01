@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Search</title>
+  <style>
+    body { font-family: 'Arial', sans-serif; background-color: #f4f4f4; text-align: center; }
+    h2 { background-color: #007bff; color: white; padding: 15px; margin: 0; }
+    .search-container { margin: 20px auto; width: 90%; max-width: 500px; }
+    input { width: 70%; padding: 12px; font-size: 16px; border: 2px solid #007bff; border-radius: 25px; outline: none; }
+    button { padding: 12px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 25px; cursor: pointer; }
+    button:hover { background-color: #0056b3; }
+    .no-results { font-size: 18px; color: #d9534f; margin-top: 20px; }
+    table { margin: 20px auto; border-collapse: collapse; width: 90%; max-width: 800px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #007bff; color: white; }
+    tr:nth-child(even) { background-color: #f2f2f2; }
+    a { color: #007bff; text-decoration: none; }
+    a:hover { color: #0056b3; }
+    .hide-zero-stock { margin-top: 10px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <h2>🔍 Stock Search System</h2>
+
+  <div class="search-container">
+    <form method="post">
+      <div class="form-group">
+        <input type="text" name="query" placeholder="Enter Item Code, UPC, or Description" value="{{ query }}">
+      </div>
+      <div class="form-group">
+        <label class="hide-zero-stock">
+          <input type="checkbox" id="hideZeroStock" name="hideZeroStock" {% if hide_zero_stock %}checked{% endif %}> Hide items with zero stock
+        </label>
+        <button type="submit">Search</button>
+      </div>
+    </form>
+  </div>
+  
+  <style>
+    .search-container {
+      margin: 20px auto;
+      width: 90%;
+      max-width: 600px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+    }
+  
+    .form-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+  
+    input {
+      flex: 1;
+      padding: 12px;
+      font-size: 16px;
+      border: 2px solid #007bff;
+      border-radius: 25px;
+      outline: none;
+    }
+  
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+  
+    button:hover {
+      background-color: #0056b3;
+    }
+  
+    .hide-zero-stock {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 14px;
+    }
+  
+    .hide-zero-stock input {
+      margin: 0;
+    }
+  </style>
+
+  {% if results is not none %}
+    <h3>Results:</h3>
+    {% if results|length == 0 %}
+      <p class="no-results">❌ No matching results found.</p>
+    {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th>Item Code</th>
+            <th>UPC Code</th>
+            <th>Description</th>
+            <th>Stock Quantity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in results %}
+            <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
+              <td>
+                <a href="{{ url_for('item_detail', item_code=item[0]) }}">
+                  {{ item[0] }}
+                </a>
+              </td>
+              <td>{{ item[1] }}</td>
+              <td>{{ item[2] }}</td>
+              <td>{{ item[5] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+
+  <script>
+    // Function to hide rows with zero stock quantity
+    function hideZeroStockRows() {
+      const hideZeroStockCheckbox = document.getElementById("hideZeroStock");
+      const zeroStockRows = document.querySelectorAll(".zero-stock");
+
+      zeroStockRows.forEach(row => {
+        row.style.display = hideZeroStockCheckbox.checked ? "none" : "";
+      });
+    }
+
+    // Attach event listener to the checkbox
+    document.getElementById("hideZeroStock").addEventListener("change", hideZeroStockRows);
+
+    // Run the function on page load
+    window.onload = hideZeroStockRows;
+  </script>
+
+</body>
+</html>
