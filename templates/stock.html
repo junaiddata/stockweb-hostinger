@@ -421,10 +421,11 @@
                                 <th>Description</th>
                                 <th>Stock</th>
                                 <th>Free Stock</th>
-                                <th>Min. Price</th>
                                 {% if session.username %}
                                 <th>Cost Price</th>
                                 {% endif %}
+                                <th>Min. Price</th>
+
                             </tr>
                         </thead>
                         <tbody>
@@ -439,10 +440,11 @@
                                     
                                 </td>
                                 <td>{{ item[6] }}</td>
-                                <td>{{ item[7] }} AED</td>
                                 {% if session.username %}
                                 <td>{{ item[8] }} AED</td>
                                 {% endif %}
+                                <td>{{ item[7] }} AED</td>
+    
                             </tr>
                             {% endfor %}
                         </tbody>
