@@ -22,7 +22,8 @@ USERS = {
 # Define the SQLite database file path
 DB_PATHS = {
     "DIP": "stock_data_headoffice.db",
-    "RASALKHORE": "stock_data_rasalkhor.db"
+    "RASALKHORE": "stock_data_rasalkhor.db",
+    "ALABAMA": "stock_data_alabama.db"
 }
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -69,27 +70,48 @@ def upload_file():
     return render_template("upload.html")
 
 def process_excel(filepath):
-    """Read sheets OUTPUT_DIP and OUTPUT_RASALKHORE from Excel and update the database."""
+    """Read sheets OUTPUT_DIP, OUTPUT_RAS and ALABAMA from Excel and update the databases."""
     xls = pd.ExcelFile(filepath)
 
-    for branch, sheet_name in {"DIP": "OUTPUT_DIP", "RASALKHORE": "OUTPUT_RAS"}.items():
+    for branch, sheet_name in {"DIP": "OUTPUT_DIP", "RASALKHORE": "OUTPUT_RAS", "ALABAMA": "ALABAMA"}.items():
         if sheet_name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=sheet_name, dtype={'Item No.': str})
-
-            # ✅ Rename columns to standard names
-            column_mapping = {
-                "Item No.": "ItemCode",
-                "Item Description": "Description",
-                "Upc Code": "Upc Code",
-                "Manufacturer Name": "Manufacturer Name",
-                "Warehouse Code": "Warehouse Code",
-                "In Stock": "Stock Quantity",
-                "FREE STOCK": "Free Stock",
-                "Minimum Selling Price": "Selling Price",
-                "Minimum Selling Price": "Selling Price",
-                "Cost Price": "CostPrice"  # <-- add this line
-            }
-            df.rename(columns=column_mapping, inplace=True)
+            # Branch-specific normalization
+            if branch == "ALABAMA":
+                column_mapping = {
+                    "Item No.": "ItemCode",
+                    "Item Description": "Description",
+                    "Manufacturer Name": "Manufacturer Name",
+                    "Upc Code": "Upc Code",
+                    "Cost Price": "CostPrice"
+                }
+                df.rename(columns=column_mapping, inplace=True)
+                # Keep only the needed columns for ALABAMA (no stock, no selling price)
+                keep_cols = ["ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice"]
+                for col in keep_cols:
+                    if col not in df.columns:
+                        df[col] = ""
+                df = df[keep_cols]
+                # Basic cleanup for ALABAMA
+                df['ItemCode'] = df['ItemCode'].fillna('').astype(str)
+                df['Upc Code'] = df['Upc Code'].fillna('').astype(str)
+                df['Description'] = df['Description'].fillna('').astype(str)
+                df['Manufacturer Name'] = df['Manufacturer Name'].fillna('').astype(str)
+                df['CostPrice'] = df['CostPrice'].fillna('').astype(str)
+            else:
+                # ✅ Rename columns to standard names for DIP/RASALKHORE
+                column_mapping = {
+                    "Item No.": "ItemCode",
+                    "Item Description": "Description",
+                    "Upc Code": "Upc Code",
+                    "Manufacturer Name": "Manufacturer Name",
+                    "Warehouse Code": "Warehouse Code",
+                    "In Stock": "Stock Quantity",
+                    "FREE STOCK": "Free Stock",
+                    "Minimum Selling Price": "Selling Price",
+                    "Cost Price": "CostPrice"
+                }
+                df.rename(columns=column_mapping, inplace=True)
             # ✅ Read Excel ensuring ItemCode is a string
 #           df = pd.read_excel(excel_file, dtype={'ItemCode': str})
 
@@ -99,9 +121,12 @@ def process_excel(filepath):
 
 #     # ✅ Handle missing values
             df['ItemCode'] = df['ItemCode'].fillna('').astype(str)
-            df['Upc Code'] = df['Upc Code'].fillna('').astype(str)
-            df['Selling Price'] = df['Selling Price'].fillna('').astype(str)
-            df['CostPrice'] = df['CostPrice'].fillna(0).astype(str)
+            if 'Upc Code' in df.columns:
+                df['Upc Code'] = df['Upc Code'].fillna('').astype(str)
+            if 'Selling Price' in df.columns:
+                df['Selling Price'] = df['Selling Price'].fillna('').astype(str)
+            if 'CostPrice' in df.columns:
+                df['CostPrice'] = df['CostPrice'].fillna('').astype(str)
 
 #     # ✅ Strip column names
             df.columns = df.columns.str.strip()
@@ -113,12 +138,17 @@ def process_excel(filepath):
             # Strip column names
             df.columns = df.columns.str.strip()
 
-            # Ensure correct column names (adjust according to your actual data)
-            expected_columns = [
-                "ItemCode", "Upc Code", "Description", "Manufacturer Name",
-                "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
-            ]
-            df = df[expected_columns]
+            if branch != "ALABAMA":
+                # Ensure correct column names for DIP/RASALKHORE
+                expected_columns = [
+                    "ItemCode", "Upc Code", "Description", "Manufacturer Name",
+                    "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
+                ]
+                # Add any missing expected columns with defaults
+                for col in expected_columns:
+                    if col not in df.columns:
+                        df[col] = 0 if col in ["Stock Quantity", "Free Stock"] else ""
+                df = df[expected_columns]
 
             update_database(branch, df)
 
@@ -127,24 +157,7 @@ def update_database(branch, df):
     db_path = DB_PATHS[branch]
 
     conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    cursor.execute("DROP TABLE IF EXISTS stock_items")  # Remove old data
-
-    cursor.execute('''
-        CREATE TABLE stock_items (
-            "ItemCode" TEXT,
-            "Upc Code" TEXT,
-            "Description" TEXT,
-            "Manufacturer Name" TEXT,
-            "Warehouse Code" TEXT,
-            "Stock Quantity" INTEGER,
-            "Free Stock" INTEGER,
-            "Selling Price" INTEGER
-            "CostPrice" INTEGER       
-        )
-    ''')
-
+    # Let pandas create/replace the table based on df schema
     df.to_sql("stock_items", conn, if_exists="replace", index=False)
 
     conn.commit()
@@ -169,14 +182,22 @@ def headoffice():
 def rasalkhor():
     return stock_page("RASALKHORE")
 
+@app.route("/alabama", methods=["GET", "POST"])
+def alabama():
+    return stock_page("ALABAMA")
+
 def stock_page(branch):
     results = None
     query = ""
     hide_zero_stock = False
+    hide_zero_cost = False
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
-        hide_zero_stock = request.form.get("hideZeroStock") == "on"
+        if branch != "ALABAMA":
+            hide_zero_stock = request.form.get("hideZeroStock") == "on"
+        else:
+            hide_zero_cost = request.form.get("hideZeroCost") == "on"
 
         if query:
             conn = sqlite3.connect(DB_PATHS[branch])
@@ -186,10 +207,17 @@ def stock_page(branch):
             query_words = query.split()
 
             # Start building the SQL query
-            sql_query = """
-                SELECT * FROM stock_items
-                WHERE
-            """
+            if branch == "ALABAMA":
+                sql_query = """
+                    SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice"
+                    FROM stock_items
+                    WHERE
+                """
+            else:
+                sql_query = """
+                    SELECT * FROM stock_items
+                    WHERE
+                """
 
             # Create conditions for each word
             conditions = []
@@ -210,9 +238,12 @@ def stock_page(branch):
             # Join conditions with AND to ensure all words must be matched
             sql_query += " AND ".join(conditions)
 
-            # Add condition to hide zero-stock items if checked
-            if hide_zero_stock:
+            # Add condition to hide zero-stock items if checked (not for ALABAMA)
+            if branch != "ALABAMA" and hide_zero_stock:
                 sql_query += " AND \"Stock Quantity\" > 0"
+            # For ALABAMA, hide items with CostPrice == 0
+            if branch == "ALABAMA" and hide_zero_cost:
+                sql_query += " AND CAST(\"CostPrice\" AS REAL) > 0"
 
             # Execute the query
             cursor.execute(sql_query, params)
@@ -222,7 +253,7 @@ def stock_page(branch):
 
             conn.close()
 
-    return render_template("stock.html", results=results, query=query, hide_zero_stock=hide_zero_stock, branch=branch)
+    return render_template("stock.html", results=results, query=query, hide_zero_stock=hide_zero_stock, hide_zero_cost=hide_zero_cost, branch=branch)
 
 # Item detail page
 @app.route("/item/<branch>/<item_code>")
