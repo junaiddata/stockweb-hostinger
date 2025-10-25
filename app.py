@@ -168,6 +168,10 @@ def update_database(branch, df):
 def home():
     return render_template("home.html")
 
+@app.route("/a")
+def alabama_home():
+    return render_template("alabama_home.html")
+
 # # For debugging: list the tables in the database
 # conn = sqlite3.connect(DB_PATH)
 # cursor = conn.cursor()
