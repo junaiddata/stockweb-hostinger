@@ -354,6 +354,15 @@
                 width: auto; /* Auto width on larger screens */
             }
         }
+
+
+
+        .mini-btn {
+  padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
+  background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.mini-btn:hover { background: #f5f5f5; }
+.mini-btn.neutral { color: #555; }
     </style>
 </head>
 <body>
@@ -371,11 +380,19 @@
                         <button type="button" id="voiceSearchBtn" aria-label="Search by voice">🎤</button>
                     </div>
                     <div class="controls">
-                         <label class="toggle-switch">
+                        {% if branch != 'ALABAMA' %}
+                        <label class="toggle-switch">
                             <input type="checkbox" id="hideZeroStock" name="hideZeroStock" {% if hide_zero_stock %}checked{% endif %}>
                             <span class="slider"></span>
                             Hide zero stock items
                         </label>
+                        {% else %}
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="hideZeroCost" name="hideZeroCost" {% if hide_zero_cost %}checked{% endif %}>
+                            <span class="slider"></span>
+                            Hide cost price = 0
+                        </label>
+                        {% endif %}
                         <button type="submit">Search</button>
                     </div>
                 </form>
@@ -387,68 +404,129 @@
                 {% if results|length == 0 %}
                     <p class="no-results">❌ No matching results found.</p>
                 {% else %}
-                    <div class="results-cards-container">
-                        {% for item in results %}
-                        <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}" class="result-card {% if item[5] == 0 %}zero-stock{% endif %}">
-                            <div class="card-header">
-                                <span class="description">{{ item[2] }}</span>
-                                <span class="stock-badge {% if item[5] > 0 %}in-stock{% else %}out-of-stock{% endif %}">
-                                    {% if item[5] > 0 %}
-                                        In Stock
-                                    {% else %}
-                                        Out of Stock
-                                    {% endif %}
-                                </span>
-                            </div>
-                            <div class="card-body">
-                                <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[6] }}</p>
-                                <p><strong>Item Code:</strong> {{ item[0] }}</p>
-                                <p><strong>UPC Code:</strong> {{ item[1] }}</p>
-                                <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
-                                {% if session.username %}
-                                <p><strong>Cost Price:</strong> {{ item[8] }} AED</p>
-                                {% endif %}
-                            </div>
-                        </a>
-                        {% endfor %}
-                    </div>
-        
-                    <table class="results-table">
-                        <thead>
-                            <tr>
-                                <th>Item Code</th>
-                                <th>UPC</th>
-                                <th>Description</th>
-                                <th>Stock</th>
-                                <th>Free Stock</th>
-                                {% if session.username %}
-                                <th>Cost Price</th>
-                                {% endif %}
-                                <th>Min. Price</th>
-
-                            </tr>
-                        </thead>
-                        <tbody>
+                    {% if branch == 'ALABAMA' %}
+                        <div class="results-cards-container">
                             {% for item in results %}
-                            <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
-                                <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
-                                <td>{{ item[1] }}</td>
-                                <td>{{ item[2] }}</td>
-                                <td>
-                                    
-                                        {{ item[5] }}
-                                    
-                                </td>
-                                <td>{{ item[6] }}</td>
-                                {% if session.username %}
-                                <td>{{ item[8] }} AED</td>
-                                {% endif %}
-                                <td>{{ item[7] }} AED</td>
-    
-                            </tr>
+                            <div class="result-card">
+                                <div class="card-header">
+                                    <span class="description">{{ item[2] }}</span>
+                                </div>
+                                <div class="card-body">
+                                    <p><strong>Item Code:</strong> {{ item[0] }}</p>
+                                    <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+                                    <!-- <p><strong>Manufacturer:</strong> {{ item[3] }}</p> -->
+                                    <p><strong> Price:</strong> {{ item[4] }}</p>
+                                </div>
+                            </div>
                             {% endfor %}
-                        </tbody>
-                    </table>
+                        </div>
+
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>UPC</th>
+                                    <th>Description</th>
+                                    <!-- <th>Manufacturer</th> -->
+                                    <th> Price</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in results %}
+                                <tr>
+                                    <td>{{ item[0] }}</td>
+                                    <td>{{ item[1] }}</td>
+                                    <td>{{ item[2] }}</td>
+                                    <!-- <td>{{ item[3] }}</td> -->
+                                    <td>{{ item[4] }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <div class="results-cards-container">
+                            {% for item in results %}
+                            <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}" class="result-card {% if item[5] == 0 %}zero-stock{% endif %}">
+                                <div class="card-header">
+                                    <span class="description">{{ item[2] }}</span>
+                                    <span class="stock-badge {% if item[5] > 0 %}in-stock{% else %}out-of-stock{% endif %}">
+                                        {% if item[5] > 0 %}
+                                            In Stock
+                                        {% else %}
+                                            Out of Stock
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="card-body">
+                                    <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[6] }}</p>
+                                    <p><strong>Item Code:</strong> {{ item[0] }}</p>
+                                    <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+                                    <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
+                                    {% if session.username %}
+                                    <p><strong>Cost Price:</strong> {{ item[8] }} AED</p>
+                                    {% endif %}
+                                </div>
+                            </a>
+                            {% endfor %}
+                        </div>
+
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>UPC</th>
+                                    <th>Description</th>
+                                    <th>Stock</th>
+                                    <th>Free Stock</th>
+                                    {% if session.username %}
+                                    <th>Cost Price</th>
+                                    {% endif %}
+                                    <th>Min. Price</th>
+
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in results %}
+                                <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
+                                    <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
+                                    <td>{{ item[1] }}</td>
+                                    <td>{{ item[2] }}</td>
+                                    <td>
+                                        {{ item[5] }}
+                                    </td>
+                                    <td>{{ item[6] }}</td>
+                                    {% if session.username %}
+                                    <td>{{ item[8] }} AED</td>
+                                    {% endif %}
+                                    <td>
+<!-- VIEW MODE -->
+<span class="min-price-view" data-value="{{ item[7] }}">
+    <span class="min-price-text">{{ item[7] }}</span> AED
+    {% if session.username %}
+    <button type="button"
+                    class="mini-btn"
+                    data-item-code="{{ item[0] }}"
+                    data-branch="{{ branch }}"
+                    onclick="startEditMinPrice(this)">
+        Edit
+    </button>
+    {% endif %}
+    <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+</span>
+
+  <!-- EDIT MODE (hidden initially) -->
+  <span class="min-price-edit" style="display:none;">
+    <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[7] }}" style="width:110px;">
+    <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+    <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+  </span>
+</td>
+    
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
                 {% endif %}
             </section>
             {% endif %}
@@ -462,18 +540,48 @@
     <script>
         // Function to hide rows/cards with zero stock quantity
         function hideZeroStockItems() {
-            const isChecked = document.getElementById("hideZeroStock").checked;
+            const stockToggle = document.getElementById("hideZeroStock");
+            if (!stockToggle) return;
+            const isChecked = stockToggle.checked;
             const zeroStockItems = document.querySelectorAll(".zero-stock");
             zeroStockItems.forEach(item => {
                 item.style.display = isChecked ? "none" : "";
             });
         }
+
+        function hideZeroCostItems() {
+            const costToggle = document.getElementById("hideZeroCost");
+            if (!costToggle) return;
+            const isChecked = costToggle.checked;
+            // Alabama rows have cost price at index 4 in table view
+            const rows = document.querySelectorAll("table.results-table tbody tr");
+            rows.forEach(row => {
+                const cells = row.querySelectorAll("td");
+                const costCell = cells[cells.length - 1];
+                const cost = parseFloat((costCell?.textContent || "").trim()) || 0;
+                row.style.display = isChecked && cost === 0 ? "none" : "";
+            });
+            // For cards view, last <p> contains cost price
+            const cards = document.querySelectorAll(".results-cards-container .result-card .card-body");
+            cards.forEach(body => {
+                const ps = body.querySelectorAll("p");
+                const last = ps[ps.length - 1];
+                if (!last) return;
+                const match = (last.textContent || "").match(/Cost Price:\s*(\d+(?:\.\d+)?)/i);
+                const cost = match ? parseFloat(match[1]) : 0;
+                const card = body.closest(".result-card");
+                if (card) card.style.display = isChecked && cost === 0 ? "none" : "";
+            });
+        }
         
         // Attach event listener to the checkbox
-        document.getElementById("hideZeroStock").addEventListener("change", hideZeroStockItems);
+        const stockToggleEl = document.getElementById("hideZeroStock");
+        if (stockToggleEl) stockToggleEl.addEventListener("change", hideZeroStockItems);
+        const costToggleEl = document.getElementById("hideZeroCost");
+        if (costToggleEl) costToggleEl.addEventListener("change", hideZeroCostItems);
         
         // Run the function on page load to set the initial state
-        window.addEventListener("load", hideZeroStockItems);
+        window.addEventListener("load", () => { hideZeroStockItems(); hideZeroCostItems(); });
 
         // --- Voice Search Functionality (Unchanged) ---
         function startVoiceSearch() {
@@ -514,6 +622,92 @@
 
         // Attach event listener to the voice search button
         document.getElementById("voiceSearchBtn").addEventListener("click", startVoiceSearch);
+
+
+
+
+    function findPartsFromAnyChild(el) {
+  // Works whether user clicked inside VIEW or EDIT span
+  const td = el.closest('td');
+  return {
+    td,
+    view: td.querySelector('.min-price-view'),
+    edit: td.querySelector('.min-price-edit'),
+    text: td.querySelector('.min-price-text'),
+    input: td.querySelector('.min-price-input'),
+    status: td.querySelector('.save-status'),
+    btn: td.querySelector('button[data-item-code]')
+  };
+}
+
+function startEditMinPrice(btn) {
+  const { view, edit, input } = findPartsFromAnyChild(btn);
+  if (!view || !edit) return;
+  // Seed input with current value
+  const current = (view.dataset.value || '').trim();
+  if (current) input.value = current;
+  view.style.display = 'none';
+  edit.style.display = 'inline';
+  input.focus();
+  input.select();
+}
+
+function cancelEditMinPrice(btn) {
+  const { view, edit, input } = findPartsFromAnyChild(btn);
+  if (!view || !edit) return;
+  // Reset input back to original
+  const orig = (view.dataset.value || '').trim();
+  if (orig) input.value = orig;
+  edit.style.display = 'none';
+  view.style.display = 'inline';
+}
+
+async function saveMinPriceRow(btn) {
+  const { view, edit, text, input, status, btn: viewBtn } = findPartsFromAnyChild(btn);
+  if (!view || !edit || !viewBtn) return;
+
+  const itemCode = viewBtn.dataset.itemCode;
+  const branch = viewBtn.dataset.branch;
+
+  let raw = String(input.value || '').trim();
+  if (raw === '') raw = '0';
+  const min_price = Number(raw);
+
+  if (Number.isNaN(min_price) || min_price < 0) {
+    if (status) { status.textContent = 'Invalid'; status.style.color = 'var(--error-color, #c62828)'; }
+    return;
+  }
+
+  if (status) { status.textContent = 'Saving…'; status.style.color = ''; }
+
+  try {
+    const res = await fetch('/api/min-price', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, item_code: itemCode, min_price })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
+
+    // Update view mode text + data-value
+    const normalized = String(data.min_price);
+    text.textContent = normalized;
+    view.dataset.value = normalized;
+
+    // Done → switch back to view mode
+    edit.style.display = 'none';
+    view.style.display = 'inline';
+
+    if (status) {
+      status.textContent = 'Saved';
+      status.style.color = 'var(--success-color, #2e7d32)';
+      setTimeout(() => { status.textContent = ''; }, 1500);
+    }
+  } catch (e) {
+    if (status) { status.textContent = 'Error'; status.style.color = 'var(--error-color, #c62828)'; }
+    console.error(e);
+  }
+}
     </script>
 </body>
 </html>

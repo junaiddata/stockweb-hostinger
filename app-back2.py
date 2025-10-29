@@ -153,32 +153,19 @@ def process_excel(filepath, keep_admin_prices=True):
 
             update_database(branch, df, keep_admin_prices=keep_admin_prices)
 def ensure_override_table(db_path: str):
+    """Create the price_overrides table if it doesn't exist."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    # Base table (if new DB)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS price_overrides (
             ItemCode TEXT PRIMARY KEY,
-            SellingPriceOverride REAL,   -- used by DIP/RASALKHORE
-            CostPriceOverride    REAL,   -- used by ALABAMA
+            SellingPriceOverride REAL,
             edited_by TEXT,
             edited_at TEXT DEFAULT (datetime('now'))
         )
     """)
-    # If the table already existed without one of the columns, add it.
-    cur.execute("PRAGMA table_info(price_overrides)")
-    cols = {r[1] for r in cur.fetchall()}
-    if "SellingPriceOverride" not in cols:
-        cur.execute('ALTER TABLE price_overrides ADD COLUMN SellingPriceOverride REAL')
-    if "CostPriceOverride" not in cols:
-        cur.execute('ALTER TABLE price_overrides ADD COLUMN CostPriceOverride REAL')
-    if "edited_by" not in cols:
-        cur.execute('ALTER TABLE price_overrides ADD COLUMN edited_by TEXT')
-    if "edited_at" not in cols:
-        cur.execute("ALTER TABLE price_overrides ADD COLUMN edited_at TEXT DEFAULT (datetime('now'))")
     conn.commit()
     conn.close()
-
 def update_database(branch, df, keep_admin_prices=True):
     db_path = DB_PATHS[branch]
     conn = sqlite3.connect(db_path)
@@ -246,20 +233,14 @@ def stock_page(branch):
         # Start building the SQL query
             if branch == "ALABAMA":
                 sql_query = """
-                    SELECT
-                        si."ItemCode",
-                        si."Upc Code",
-                        si."Description",
-                        si."Manufacturer Name",
-                        COALESCE(po.CostPriceOverride, si."CostPrice") AS "CostPrice"
-                    FROM stock_items si
-                    LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                    SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice"
+                    FROM stock_items
                     WHERE
                 """
-                col_item = 'si."ItemCode"'
-                col_upc  = 'si."Upc Code"'
-                col_desc = 'si."Description"'
-                col_mfg  = 'si."Manufacturer Name"'
+                col_item    = '"ItemCode"'
+                col_upc     = '"Upc Code"'
+                col_desc    = '"Description"'
+                col_mfg     = '"Manufacturer Name"'
             else:
                 sql_query = """
                     SELECT
@@ -451,19 +432,19 @@ def update_min_price():
 
     data = request.get_json(silent=True) or {}
     branch = data.get("branch")
-    item_code = (data.get("item_code") or "").strip()
-    price_val = data.get("min_price")  # reuse param name
+    item_code = data.get("item_code")
+    item_code = (item_code or "").strip()
+    min_price = data.get("min_price")
 
-    if branch not in ("DIP", "RASALKHORE", "ALABAMA"):
+    if branch not in ("DIP", "RASALKHORE"):
         return jsonify(ok=False, error=f"Branch not editable: {branch!r}"), 400
     if not item_code:
         return jsonify(ok=False, error="Missing item_code"), 400
     try:
-        price_val = float(str(price_val).strip())
-        if price_val < 0:
-            raise ValueError
+        min_price = float(str(min_price).strip())
+        if min_price < 0: raise ValueError
     except Exception:
-        return jsonify(ok=False, error=f"Invalid price: {price_val!r}"), 400
+        return jsonify(ok=False, error=f"Invalid min_price: {min_price!r}"), 400
 
     db_path = DB_PATHS.get(branch)
     if not db_path or not os.path.exists(db_path):
@@ -474,32 +455,20 @@ def update_min_price():
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
 
-        # item must exist in sheet
+        # Verify the item exists in sheet data
         cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
         if not cur.fetchone():
             return jsonify(ok=False, error=f'Item not found in stock_items: "{item_code}"'), 404
 
-        if branch == "ALABAMA":
-            # Upsert CostPriceOverride
-            cur.execute("""
-                INSERT INTO price_overrides (ItemCode, CostPriceOverride, edited_by)
-                VALUES (?, ?, ?)
-                ON CONFLICT(ItemCode) DO UPDATE SET
-                    CostPriceOverride = excluded.CostPriceOverride,
-                    edited_by = excluded.edited_by,
-                    edited_at = datetime('now')
-            """, (item_code, price_val, session.get("username", "admin")))
-        else:
-            # Upsert SellingPriceOverride
-            cur.execute("""
-                INSERT INTO price_overrides (ItemCode, SellingPriceOverride, edited_by)
-                VALUES (?, ?, ?)
-                ON CONFLICT(ItemCode) DO UPDATE SET
-                    SellingPriceOverride = excluded.SellingPriceOverride,
-                    edited_by = excluded.edited_by,
-                    edited_at = datetime('now')
-            """, (item_code, price_val, session.get("username", "admin")))
-
+        # Upsert override
+        cur.execute("""
+            INSERT INTO price_overrides (ItemCode, SellingPriceOverride, edited_by)
+            VALUES (?, ?, ?)
+            ON CONFLICT(ItemCode) DO UPDATE SET
+                SellingPriceOverride = excluded.SellingPriceOverride,
+                edited_by = excluded.edited_by,
+                edited_at = datetime('now')
+        """, (item_code, min_price, session.get("username", "admin")))
         conn.commit()
     except Exception as e:
         return jsonify(ok=False, error=f"DB error: {e}"), 500
@@ -507,7 +476,7 @@ def update_min_price():
         try: conn.close()
         except: pass
 
-    return jsonify(ok=True, item_code=item_code, price=price_val, source="override", branch=branch)
+    return jsonify(ok=True, item_code=item_code, min_price=min_price, source="override")
 
 
 

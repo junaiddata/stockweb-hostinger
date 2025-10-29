@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Management System</title>
+  
+  <!-- Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  
+  <!-- GSAP -->
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/ScrollTrigger.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/TextPlugin.min.js"></script>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary-color: #FF6B00;
+      --secondary-color: #FF8C00;
+      --dark-bg: #0A0A0A;
+      --light-text: #FFFFFF;
+      --gray-text: #888888;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      color: var(--light-text);
+      background: var(--dark-bg);
+      overflow-x: hidden;
+      cursor: none;
+    }
+
+    /* Loader */
+    .loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--dark-bg);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .loader-content {
+      text-align: center;
+    }
+
+    .loader-number {
+      font-size: 120px;
+      font-weight: 900;
+      color: var(--primary-color);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .loader-text {
+      font-size: 14px;
+      letter-spacing: 4px;
+      margin-top: 20px;
+      text-transform: uppercase;
+      color: var(--gray-text);
+    }
+
+    /* Custom Cursor */
+    .cursor {
+      width: 10px;
+      height: 10px;
+      background: var(--primary-color);
+      border-radius: 50%;
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      mix-blend-mode: difference;
+    }
+
+    .cursor-follower {
+      width: 30px;
+      height: 30px;
+      border: 1px solid rgba(255, 107, 0, 0.5);
+      border-radius: 50%;
+      position: fixed;
+      pointer-events: none;
+      z-index: 9998;
+    }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      padding: 30px 50px;
+      z-index: 1000;
+      mix-blend-mode: difference;
+      transition: all 0.3s ease;
+    }
+
+    nav.scrolled {
+      background: rgba(10, 10, 10, 0.95);
+      backdrop-filter: blur(10px);
+      padding: 20px 50px;
+      mix-blend-mode: normal;
+    }
+
+    .nav-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .logo {
+      width: 160px;
+      height: auto;
+      filter: brightness(0) invert(1);
+      transition: transform 0.3s ease;
+    }
+
+    .logo:hover {
+      transform: scale(1.05);
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 40px;
+      align-items: center;
+    }
+
+    .nav-link {
+      color: var(--light-text);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .nav-link::after {
+      content: '';
+      position: absolute;
+      bottom: -5px;
+      left: 0;
+      width: 0;
+      height: 2px;
+      background: var(--primary-color);
+      transition: width 0.3s ease;
+    }
+
+    .nav-link:hover::after {
+      width: 100%;
+    }
+
+    .auth-button {
+      background: var(--primary-color);
+      color: var(--light-text);
+      padding: 12px 30px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .auth-button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: var(--secondary-color);
+      transition: left 0.3s ease;
+    }
+
+    .auth-button:hover::before {
+      left: 0;
+    }
+
+    .auth-button span {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Hero Section */
+    .hero {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-image-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 600px;
+      height: 600px;
+      z-index: -1;
+      opacity: 0;
+    }
+
+    .hero-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 20px 40px rgba(255, 107, 0, 0.3));
+    }
+
+    .hero-content {
+      text-align: center;
+      z-index: 1;
+      max-width: 800px;
+      padding: 0 20px;
+    }
+
+    .hero-subtitle {
+      font-size: 16px;
+      letter-spacing: 4px;
+      color: var(--primary-color);
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      opacity: 0;
+    }
+
+    .hero-title {
+      font-size: clamp(60px, 10vw, 120px);
+      font-weight: 900;
+      line-height: 0.9;
+      margin-bottom: 30px;
+      text-transform: uppercase;
+      opacity: 0;
+    }
+
+    .hero-title .highlight {
+      color: var(--primary-color);
+      display: inline-block;
+    }
+
+    .hero-description {
+      font-size: 18px;
+      color: var(--gray-text);
+      margin-bottom: 40px;
+      line-height: 1.6;
+      opacity: 0;
+    }
+
+    /* Branches Section */
+    .branches {
+      padding: 100px 50px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 80px;
+      opacity: 0;
+    }
+
+    .section-subtitle {
+      font-size: 14px;
+      letter-spacing: 4px;
+      color: var(--primary-color);
+      margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      font-size: clamp(40px, 6vw, 60px);
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .branches-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 40px;
+    }
+
+    .branch-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 20px;
+      padding: 60px 40px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transition: all 0.3s ease;
+    }
+
+    .branch-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, transparent, rgba(255, 107, 0, 0.1));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .branch-card:hover::before {
+      opacity: 1;
+    }
+
+    .branch-card:hover {
+      transform: translateY(-10px);
+      border-color: rgba(255, 107, 0, 0.3);
+    }
+
+    .branch-number {
+      font-size: 80px;
+      font-weight: 900;
+      color: var(--primary-color);
+      margin-bottom: 20px;
+      opacity: 0.2;
+    }
+
+    .branch-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .branch-description {
+      font-size: 16px;
+      color: var(--gray-text);
+      margin-bottom: 30px;
+      line-height: 1.6;
+    }
+
+    .branch-link {
+      display: inline-block;
+      color: var(--primary-color);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+
+    .branch-link::after {
+      content: '→';
+      margin-left: 10px;
+      display: inline-block;
+      transition: transform 0.3s ease;
+    }
+
+    .branch-link:hover::after {
+      transform: translateX(5px);
+    }
+
+    /* Canvas Container */
+    #canvas-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -3;
+    }
+
+    /* Floating Elements */
+    .floating-element {
+      position: fixed;
+      pointer-events: none;
+      opacity: 0.1;
+      z-index: -1;
+    }
+
+    .float-1 {
+      top: 10%;
+      right: 10%;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, var(--primary-color), transparent);
+      filter: blur(100px);
+    }
+
+    .float-2 {
+      bottom: 10%;
+      left: 10%;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, var(--secondary-color), transparent);
+      filter: blur(120px);
+    }
+
+    /* Mobile Menu */
+    .mobile-menu-toggle {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--light-text);
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      body {
+        cursor: auto;
+      }
+
+      .cursor, .cursor-follower {
+        display: none;
+      }
+
+      nav {
+        padding: 20px 30px;
+      }
+
+      .nav-menu {
+        display: none;
+      }
+
+      .mobile-menu-toggle {
+        display: block;
+      }
+
+      .hero-image-container {
+        width: 350px;
+        height: 350px;
+      }
+
+      .branches {
+        padding: 60px 30px;
+      }
+
+      .branches-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Loader -->
+  <div class="loader">
+    <div class="loader-content">
+      <div class="loader-number">0%</div>
+      <div class="loader-text">Loading Experience</div>
+    </div>
+  </div>
+
+  <!-- Custom Cursor -->
+  <div class="cursor"></div>
+  <div class="cursor-follower"></div>
+
+  <!-- Navigation -->
+  <nav>
+    <div class="nav-container">
+      <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Logo" class="logo">
+      <div class="nav-menu">
+        <a href="#home" class="nav-link">Home</a>
+        <a href="#branches" class="nav-link">Branches</a>
+        <a href="#about" class="nav-link">About</a>
+        {% if session.username %}
+          <a href="{{ url_for('logout') }}" class="auth-button">
+            <span>Logout</span>
+          </a>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="auth-button">
+            <span>Login</span>
+          </a>
+        {% endif %}
+      </div>
+      <button class="mobile-menu-toggle">☰</button>
+    </div>
+  </nav>
+
+  <!-- Canvas Background -->
+  <div id="canvas-container"></div>
+
+  <!-- Floating Elements -->
+  <div class="floating-element float-1"></div>
+  <div class="floating-element float-2"></div>
+
+  <!-- Hero Section -->
+  <section class="hero" id="home">
+    <div class="hero-image-container">
+      <img src="https://images.unsplash.com/photo-1585704032915-c3400ca199e7?w=800" alt="Water Heater" class="hero-image">
+    </div>
+    <div class="hero-content">
+      <div class="hero-subtitle">Advanced Inventory Control</div>
+      <h1 class="hero-title">
+        Stock <span class="highlight">Management</span><br>
+        System
+      </h1>
+      <p class="hero-description">
+        Streamline your inventory across multiple locations with our cutting-edge management system. 
+        Real-time tracking, intelligent analytics, and seamless integration.
+      </p>
+    </div>
+  </section>
+
+  <!-- Branches Section -->
+  <section class="branches" id="branches">
+    <div class="section-header">
+      <div class="section-subtitle">Choose Your Location</div>
+      <h2 class="section-title">Our Branches</h2>
+    </div>
+    <div class="branches-grid">
+      <div class="branch-card">
+        <div class="branch-number">01</div>
+        <h3 class="branch-name">Head Office</h3>
+        <p class="branch-description">
+          Main headquarters with complete inventory management and analytics capabilities.
+        </p>
+        <a href="{{ url_for('headoffice') }}" class="branch-link">Access System</a>
+      </div>
+      <div class="branch-card">
+        <div class="branch-number">02</div>
+        <h3 class="branch-name">Ras Al Khor</h3>
+        <p class="branch-description">
+          Full-featured branch location with real-time stock tracking and reporting.
+        </p>
+        <a href="{{ url_for('rasalkhor') }}" class="branch-link">Access System</a>
+      </div>
+      <div class="branch-card">
+        <div class="branch-number">03</div>
+        <h3 class="branch-name">Alabama</h3>
+        <p class="branch-description">
+          Specialized pricing module with streamlined inventory overview.
+        </p>
+        <a href="{{ url_for('alabama') }}" class="branch-link">Price Check Only</a>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // Wait for all libraries to load
+    window.addEventListener('DOMContentLoaded', function() {
+      // Register GSAP plugins
+      gsap.registerPlugin(ScrollTrigger, TextPlugin);
+
+      // Initialize everything
+      initLoader();
+      initThreeJS();
+      initCursor();
+      initScrollEffects();
+    });
+
+    // Loader Animation
+    function initLoader() {
+      let loadProgress = { value: 0 };
+      const tl = gsap.timeline({
+        onComplete: () => {
+          gsap.to('.loader', {
+            opacity: 0,
+            duration: 0.5,
+            onComplete: () => {
+              document.querySelector('.loader').style.display = 'none';
+              initPageAnimations();
+            }
+          });
+        }
+      });
+
+      tl.to(loadProgress, {
+        value: 100,
+        duration: 2,
+        ease: "power2.inOut",
+        onUpdate: () => {
+          document.querySelector('.loader-number').textContent = Math.round(loadProgress.value) + '%';
+        }
+      });
+    }
+
+    // Three.js Setup
+    let scene, camera, renderer, particles, mouseX = 0, mouseY = 0;
+    
+    function initThreeJS() {
+      // Check if THREE is loaded
+      if (typeof THREE === 'undefined') {
+        console.warn('Three.js not loaded, skipping 3D effects');
+        return;
+      }
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.z = 50;
+
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      // Create particles
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      const colors = [];
+      
+      for (let i = 0; i < 1000; i++) {
+        vertices.push(
+          (Math.random() - 0.5) * 100,
+          (Math.random() - 0.5) * 100,
+          (Math.random() - 0.5) * 100
+        );
+        
+        // Orange-ish colors
+        colors.push(1, 0.42 + Math.random() * 0.2, 0);
+      }
+      
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      
+      const material = new THREE.PointsMaterial({
+        size: 2,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.6,
+        blending: THREE.AdditiveBlending
+      });
+      
+      particles = new THREE.Points(geometry, material);
+      scene.add(particles);
+
+      // Add wireframe torus
+      const torusGeometry = new THREE.TorusKnotGeometry(10, 3, 100, 16);
+      const torusMaterial = new THREE.MeshBasicMaterial({
+        color: 0xFF6B00,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.1
+      });
+      const torus = new THREE.Mesh(torusGeometry, torusMaterial);
+      scene.add(torus);
+
+      // Mouse movement
+      document.addEventListener('mousemove', (e) => {
+        mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+        mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+      });
+
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+        
+        if (particles) {
+          particles.rotation.x += 0.0003;
+          particles.rotation.y += 0.0005;
+        }
+
+        if (torus) {
+          torus.rotation.x += 0.001;
+          torus.rotation.y += 0.001;
+        }
+
+        camera.position.x += (mouseX * 10 - camera.position.x) * 0.05;
+        camera.position.y += (-mouseY * 10 - camera.position.y) * 0.05;
+        camera.lookAt(scene.position);
+        
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      // Handle resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    // Page Animations
+    function initPageAnimations() {
+      // Hero animations
+      gsap.to('.hero-image-container', {
+        opacity: 1,
+        scale: 1,
+        duration: 1.5,
+        ease: "power3.out"
+      });
+
+      gsap.to('.hero-image', {
+        rotateY: 0,
+        duration: 1.5,
+        ease: "power3.out"
+      });
+
+      const heroTl = gsap.timeline();
+      heroTl
+        .to('.hero-subtitle', {
+          opacity: 1,
+          y: 0,
+          duration: 1,
+          ease: "power3.out"
+        })
+        .to('.hero-title', {
+          opacity: 1,
+          y: 0,
+          duration: 1,
+          ease: "power3.out"
+        }, "-=0.7")
+        .to('.hero-description', {
+          opacity: 1,
+          y: 0,
+          duration: 1,
+          ease: "power3.out"
+        }, "-=0.7");
+
+      // Floating elements
+      gsap.to('.float-1', {
+        x: 100,
+        y: -100,
+        duration: 15,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut"
+      });
+
+      gsap.to('.float-2', {
+        x: -100,
+        y: 100,
+        duration: 20,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut"
+      });
+
+      // Branch cards
+      gsap.to('.section-header', {
+        scrollTrigger: {
+          trigger: '.branches',
+          start: 'top 80%'
+        },
+        opacity: 1,
+        y: 0,
+        duration: 1,
+        ease: "power3.out"
+      });
+
+      gsap.to('.branch-card', {
+        scrollTrigger: {
+          trigger: '.branches',
+          start: 'top 70%'
+        },
+        opacity: 1,
+        y: 0,
+        duration: 1,
+        stagger: 0.2,
+        ease: "power3.out"
+      });
+
+      // Hero image mouse effect
+      document.addEventListener('mousemove', (e) => {
+        const x = (e.clientX / window.innerWidth - 0.5) * 30;
+        const y = (e.clientY / window.innerHeight - 0.5) * 30;
+        
+        gsap.to('.hero-image', {
+          rotateY: x,
+          rotateX: -y,
+          duration: 1,
+          ease: "power2.out"
+        });
+      });
+
+      // Title color animation
+      setInterval(() => {
+        gsap.to('.highlight', {
+          color: '#FF8C00',
+          duration: 1,
+          yoyo: true,
+          repeat: 1,
+          ease: "power2.inOut"
+        });
+      }, 3000);
+    }
+
+    // Custom Cursor
+    function initCursor() {
+      if (window.matchMedia("(hover: hover)").matches) {
+        const cursor = document.querySelector('.cursor');
+        const cursorFollower = document.querySelector('.cursor-follower');
+        
+        document.addEventListener('mousemove', (e) => {
+          gsap.to(cursor, {
+            x: e.clientX - 5,
+            y: e.clientY - 5,
+            duration: 0
+          });
+          
+          gsap.to(cursorFollower, {
+            x: e.clientX - 15,
+            y: e.clientY - 15,
+            duration: 0.3,
+            ease: "power2.out"
+          });
+        });
+
+        // Hover effects
+        const hoverElements = document.querySelectorAll('a, button, .branch-card');
+        hoverElements.forEach(elem => {
+          elem.addEventListener('mouseenter', () => {
+            gsap.to(cursor, { scale: 2, duration: 0.3 });
+            gsap.to(cursorFollower, { scale: 1.5, duration: 0.3 });
+          });
+          elem.addEventListener('mouseleave', () => {
+            gsap.to(cursor, { scale: 1, duration: 0.3 });
+            gsap.to(cursorFollower, { scale: 1, duration: 0.3 });
+          });
+        });
+      }
+    }
+
+    // Scroll Effects
+    function initScrollEffects() {
+      // Navigation
+      window.addEventListener('scroll', () => {
+        const nav = document.querySelector('nav');
+        if (window.scrollY > 100) {
+          nav.classList.add('scrolled');
+        } else {
+          nav.classList.remove('scrolled');
+        }
+      });
+
+      // Smooth scroll
+      document.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+          const href = link.getAttribute('href');
+          if (href && href.startsWith('#')) {
+            e.preventDefault();
+            const target = document.querySelector(href);
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth' });
+            }
+          }
+        });
+      });
+
+      // Branch card magnetic effect
+      document.querySelectorAll('.branch-card').forEach(card => {
+        card.addEventListener('mousemove', (e) => {
+          const rect = card.getBoundingClientRect();
+          const x = e.clientX - rect.left - rect.width / 2;
+          const y = e.clientY - rect.top - rect.height / 2;
+          
+          gsap.to(card, {
+            x: x * 0.1,
+            y: y * 0.1,
+            duration: 0.3,
+            ease: "power2.out"
+          });
+        });
+
+        card.addEventListener('mouseleave', () => {
+          gsap.to(card, {
+            x: 0,
+            y: 0,
+            duration: 0.3,
+            ease: "elastic.out(1, 0.3)"
+          });
+        });
+      });
+
+      // Parallax effect on hero image
+      gsap.to('.hero-image-container', {
+        scrollTrigger: {
+          trigger: '.hero',
+          start: 'top top',
+          end: 'bottom top',
+          scrub: 1
+        },
+        y: 100,
+        scale: 1.1,
+        ease: "none"
+      });
+    }
+
+    // Mobile menu toggle
+    document.querySelector('.mobile-menu-toggle').addEventListener('click', () => {
+      const navMenu = document.querySelector('.nav-menu');
+      if (navMenu.style.display === 'flex') {
+        navMenu.style.display = 'none';
+      } else {
+        navMenu.style.display = 'flex';
+        navMenu.style.position = 'absolute';
+        navMenu.style.top = '100%';
+        navMenu.style.right = '0';
+        navMenu.style.flexDirection = 'column';
+        navMenu.style.background = 'rgba(10, 10, 10, 0.95)';
+        navMenu.style.padding = '20px';
+        navMenu.style.borderRadius = '10px';
+        navMenu.style.minWidth = '200px';
+      }
+    });
+
+    // Prevent console errors if Three.js doesn't load
+    window.addEventListener('error', function(e) {
+      if (e.message && e.message.includes('THREE')) {
+        console.warn('Three.js error caught, continuing without 3D effects');
+        e.preventDefault();
+      }
+    });
+
+    // Performance optimization for mobile
+    if (window.innerWidth < 768) {
+      // Reduce particle count on mobile
+      if (particles && particles.geometry) {
+        const positions = particles.geometry.attributes.position.array;
+        const reducedPositions = positions.slice(0, positions.length / 3);
+        particles.geometry.setAttribute('position', new THREE.Float32BufferAttribute(reducedPositions, 3));
+      }
+    }
+  </script>
+</body>
+</html>

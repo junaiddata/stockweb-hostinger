@@ -354,6 +354,15 @@
                 width: auto; /* Auto width on larger screens */
             }
         }
+
+
+
+        .mini-btn {
+  padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
+  background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.mini-btn:hover { background: #f5f5f5; }
+.mini-btn.neutral { color: #555; }
     </style>
 </head>
 <body>
@@ -429,7 +438,31 @@
                                     <td>{{ item[1] }}</td>
                                     <td>{{ item[2] }}</td>
                                     <!-- <td>{{ item[3] }}</td> -->
-                                    <td>{{ item[4] }}</td>
+                                     {% if session.username %}
+    <!-- Inline Edit: Cost Price (ALABAMA) -->
+    <td>
+      <!-- VIEW MODE -->
+      <span class="min-price-view" data-value="{{ item[4] }}">
+        <span class="min-price-text">{{ item[4] }}</span> AED
+        <button type="button"
+                class="mini-btn"
+                data-item-code="{{ item[0] }}"
+                data-branch="{{ branch }}"
+                onclick="startEditMinPrice(this)">
+          Edit
+        </button>
+        <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+      </span>
+      <!-- EDIT MODE -->
+      <span class="min-price-edit" style="display:none;">
+        <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[4] }}" style="width:110px;">
+        <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+        <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+      </span>
+    </td>
+  {% else %}
+    <td>{{ item[4] }} AED</td>
+  {% endif %}
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -489,7 +522,29 @@
                                     {% if session.username %}
                                     <td>{{ item[8] }} AED</td>
                                     {% endif %}
-                                    <td>{{ item[7] }} AED</td>
+                                    <td>
+<!-- VIEW MODE -->
+<span class="min-price-view" data-value="{{ item[7] }}">
+    <span class="min-price-text">{{ item[7] }}</span> AED
+    {% if session.username %}
+    <button type="button"
+                    class="mini-btn"
+                    data-item-code="{{ item[0] }}"
+                    data-branch="{{ branch }}"
+                    onclick="startEditMinPrice(this)">
+        Edit
+    </button>
+    {% endif %}
+    <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+</span>
+
+  <!-- EDIT MODE (hidden initially) -->
+  <span class="min-price-edit" style="display:none;">
+    <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[7] }}" style="width:110px;">
+    <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+    <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+  </span>
+</td>
     
                                 </tr>
                                 {% endfor %}
@@ -591,6 +646,93 @@
 
         // Attach event listener to the voice search button
         document.getElementById("voiceSearchBtn").addEventListener("click", startVoiceSearch);
+
+
+
+
+    function findPartsFromAnyChild(el) {
+  // Works whether user clicked inside VIEW or EDIT span
+  const td = el.closest('td');
+  return {
+    td,
+    view: td.querySelector('.min-price-view'),
+    edit: td.querySelector('.min-price-edit'),
+    text: td.querySelector('.min-price-text'),
+    input: td.querySelector('.min-price-input'),
+    status: td.querySelector('.save-status'),
+    btn: td.querySelector('button[data-item-code]')
+  };
+}
+
+function startEditMinPrice(btn) {
+  const { view, edit, input } = findPartsFromAnyChild(btn);
+  if (!view || !edit) return;
+  // Seed input with current value
+  const current = (view.dataset.value || '').trim();
+  if (current) input.value = current;
+  view.style.display = 'none';
+  edit.style.display = 'inline';
+  input.focus();
+  input.select();
+}
+
+function cancelEditMinPrice(btn) {
+  const { view, edit, input } = findPartsFromAnyChild(btn);
+  if (!view || !edit) return;
+  // Reset input back to original
+  const orig = (view.dataset.value || '').trim();
+  if (orig) input.value = orig;
+  edit.style.display = 'none';
+  view.style.display = 'inline';
+}
+
+async function saveMinPriceRow(btn) {
+  const { view, edit, text, input, status, btn: viewBtn } = findPartsFromAnyChild(btn);
+  if (!view || !edit || !viewBtn) return;
+
+  const itemCode = viewBtn.dataset.itemCode;
+  const branch = viewBtn.dataset.branch;
+
+  let raw = String(input.value || '').trim();
+  if (raw === '') raw = '0';
+  const min_price = Number(raw);
+
+  if (Number.isNaN(min_price) || min_price < 0) {
+    if (status) { status.textContent = 'Invalid'; status.style.color = 'var(--error-color, #c62828)'; }
+    return;
+  }
+
+  if (status) { status.textContent = 'Saving…'; status.style.color = ''; }
+
+  try {
+    const res = await fetch('/api/min-price', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, item_code: itemCode, min_price })
+    });
+    const data = await res.json();
+    const newVal = (data.min_price ?? data.price ?? min_price);  // <-- add this
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
+
+    // Update view mode text + data-value
+    const normalized = String(newVal);
+    text.textContent = normalized;
+    view.dataset.value = normalized;
+
+    // Done → switch back to view mode
+    edit.style.display = 'none';
+    view.style.display = 'inline';
+
+    if (status) {
+      status.textContent = 'Saved';
+      status.style.color = 'var(--success-color, #2e7d32)';
+      setTimeout(() => { status.textContent = ''; }, 1500);
+    }
+  } catch (e) {
+    if (status) { status.textContent = 'Error'; status.style.color = 'var(--error-color, #c62828)'; }
+    console.error(e);
+  }
+}
     </script>
 </body>
 </html>
