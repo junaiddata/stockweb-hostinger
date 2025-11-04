@@ -236,15 +236,19 @@ def stock_page(branch):
             hide_zero_cost = request.form.get("hideZeroCost") == "on"
 
         if query:
-            conn = sqlite3.connect(DB_PATHS[branch])
+            db_path = DB_PATHS[branch]
+            conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
 
-            # Split the query into individual words
+            # make sure overrides table exists for JOINs
+            ensure_override_table(db_path)
+
+            # words for filtering
             query_words = query.split()
 
-            # Start building the SQL query
-        # Start building the SQL query
+            # --- Build SELECT per-branch ---
             if branch == "ALABAMA":
+                # ALABAMA shows effective CostPrice with override
                 sql_query = """
                     SELECT
                         si."ItemCode",
@@ -261,32 +265,60 @@ def stock_page(branch):
                 col_desc = 'si."Description"'
                 col_mfg  = 'si."Manufacturer Name"'
             else:
-                sql_query = """
-                    SELECT
-                        si."ItemCode",
-                        si."Upc Code",
-                        si."Description",
-                        si."Manufacturer Name",
-                        si."Warehouse Code",
-                        si."Stock Quantity",
-                        si."Free Stock",
-                        COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
-                        si."CostPrice"
-                    FROM stock_items si
-                    LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-                    WHERE
-                """
-                # Qualifiers so WHERE uses the stock_items (si) columns only
-                col_item    = 'si."ItemCode"'
-                col_upc     = 'si."Upc Code"'
-                col_desc    = 'si."Description"'
-                col_mfg     = 'si."Manufacturer Name"'
+                # Non-ALABAMA
+                if branch == "DIP":
+                    # Attach RAS DB to show RAS stock alongside DIP
+                    ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+                    cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
 
-            # Create conditions for each word (qualify columns!)
+                    sql_query = """
+                        SELECT
+                            si."ItemCode",               -- 0
+                            si."Upc Code",               -- 1
+                            si."Description",            -- 2
+                            si."Manufacturer Name",      -- 3
+                            si."Warehouse Code",         -- 4
+                            si."Stock Quantity"      AS "DIP Stock",  -- 5
+                            COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock", -- 6
+                            si."Free Stock",              -- 7
+                            COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price", -- 8
+                            si."CostPrice"                -- 9
+                        FROM stock_items si
+                        LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
+                        LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                        WHERE
+                    """
+                    col_item = 'si."ItemCode"'
+                    col_upc  = 'si."Upc Code"'
+                    col_desc = 'si."Description"'
+                    col_mfg  = 'si."Manufacturer Name"'
+                else:
+                    # RASALKHORE page (or any other non-ALABAMA branch)
+                    sql_query = """
+                        SELECT
+                            si."ItemCode",
+                            si."Upc Code",
+                            si."Description",
+                            si."Manufacturer Name",
+                            si."Warehouse Code",
+                            si."Stock Quantity",
+                            si."Free Stock",
+                            COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
+                            si."CostPrice"
+                        FROM stock_items si
+                        LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                        WHERE
+                    """
+                    col_item = 'si."ItemCode"'
+                    col_upc  = 'si."Upc Code"'
+                    col_desc = 'si."Description"'
+                    col_mfg  = 'si."Manufacturer Name"'
+
+            # --- WHERE conditions (shared) ---
             conditions = []
             params = []
-            for word in query_words:
-                word_like = f"%{word}%"
+            for w in query_words:
+                like = f"%{w}%"
                 conditions.append(
                     f"""(
                         LOWER({col_item}) LIKE ? OR
@@ -295,28 +327,37 @@ def stock_page(branch):
                         LOWER({col_mfg})  LIKE ?
                     )"""
                 )
-                params.extend([word_like, word_like, word_like, word_like])
+                params.extend([like, like, like, like])
 
-            # Join conditions with AND to ensure all words must be matched
             sql_query += " AND ".join(conditions)
 
-            # Extra filters (also qualify columns!)
+            # Extra filters
             if branch != "ALABAMA" and hide_zero_stock:
                 sql_query += ' AND si."Stock Quantity" > 0'
             if branch == "ALABAMA" and hide_zero_cost:
                 sql_query += ' AND CAST("CostPrice" AS REAL) > 0'
 
-            # Execute the query
+            # --- Execute ---
             cursor.execute(sql_query, params)
             results = cursor.fetchall()
 
-            # print(f"Search results for {branch}:", results)
+            # Detach attached DB (only if we attached it)
+            if branch == "DIP":
+                try:
+                    cursor.execute("DETACH DATABASE ras")
+                except Exception:
+                    pass
 
             conn.close()
 
-    return render_template("stock.html", results=results, query=query, hide_zero_stock=hide_zero_stock, hide_zero_cost=hide_zero_cost, branch=branch)
-
-# Item detail page
+    return render_template(
+        "stock.html",
+        results=results,
+        query=query,
+        hide_zero_stock=hide_zero_stock,
+        hide_zero_cost=hide_zero_cost,
+        branch=branch
+    )
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):
     db_path = DB_PATHS[branch]

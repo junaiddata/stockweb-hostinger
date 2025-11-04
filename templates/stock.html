@@ -494,62 +494,106 @@
                             {% endfor %}
                         </div>
 
-                        <table class="results-table">
-                            <thead>
-                                <tr>
-                                    <th>Item Code</th>
-                                    <th>UPC</th>
-                                    <th>Description</th>
-                                    <th>Stock</th>
-                                    <th>Free Stock</th>
-                                    {% if session.username %}
-                                    <th>Cost Price</th>
-                                    {% endif %}
-                                    <th>Min. Price</th>
+<table class="results-table">
+  <thead class="table-light">
+    <tr>
+      <th style="width:40px;">#</th>
+      <th>Item Code</th>
+      <th>UPC</th>
+      <th>Description</th>
+      <th>Manufacturer</th>
+      <th>Warehouse</th>
 
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for item in results %}
-                                <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
-                                    <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
-                                    <td>{{ item[1] }}</td>
-                                    <td>{{ item[2] }}</td>
-                                    <td>
-                                        {{ item[5] }}
-                                    </td>
-                                    <td>{{ item[6] }}</td>
-                                    {% if session.username %}
-                                    <td>{{ item[8] }} AED</td>
-                                    {% endif %}
-                                    <td>
-<!-- VIEW MODE -->
-<span class="min-price-view" data-value="{{ item[7] }}">
-    <span class="min-price-text">{{ item[7] }}</span> AED
-    {% if session.username %}
-    <button type="button"
-                    class="mini-btn"
-                    data-item-code="{{ item[0] }}"
-                    data-branch="{{ branch }}"
-                    onclick="startEditMinPrice(this)">
-        Edit
-    </button>
-    {% endif %}
-    <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
-</span>
+      {% if branch == 'DIP' %}
+        <th class="right">DIP Stock</th>
+        <th class="right">RAS Stock</th>
+        <th class="right">Free Stock</th>
+      {% else %}
+        <th class="right">Stock</th>
+        <th class="right">Free Stock</th>
+      {% endif %}
 
-  <!-- EDIT MODE (hidden initially) -->
-  <span class="min-price-edit" style="display:none;">
-    <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[7] }}" style="width:110px;">
-    <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
-    <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
-  </span>
-</td>
-    
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+      <th class="right">Min. Price</th>
+      {% if session.username %}<th class="right">Cost</th>{% endif %}
+    </tr>
+  </thead>
+
+  <tbody>
+    {% for item in results %}
+      {# Row highlight for zero DIP stock on DIP page; otherwise normal stock #}
+      <tr class="{% if branch == 'DIP' %}{% if item[5] == 0 %}zero-stock{% endif %}{% else %}{% if item[5] == 0 %}zero-stock{% endif %}{% endif %}">
+        <td>{{ loop.index }}</td>
+
+        <!-- Common columns -->
+        <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
+        <td>{{ item[1] }}</td>
+        <td>{{ item[2] }}</td>
+        <td>{{ item[3] }}</td>
+        <td>{{ item[4] }}</td>
+
+        {% if branch == 'DIP' %}
+          <!-- DIP page shows both DIP & RAS stock -->
+          <td class="right">{{ item[5] }}</td>  {# DIP Stock (si."Stock Quantity") #}
+          <td class="right">{{ item[6] }}</td>  {# RAS Stock (rsi."Stock Quantity") #}
+          <td class="right">{{ item[7] }}</td>  {# Free Stock #}
+
+          <!-- Min. Price (effective) with inline Edit -->
+          <td class="right">
+            <span class="min-price-view" data-value="{{ item[8] }}">
+              <span class="min-price-text">{{ item[8] }}</span> AED
+              {% if session.username %}
+                <button type="button"
+                        class="mini-btn"
+                        data-item-code="{{ item[0] }}"
+                        data-branch="{{ branch }}"
+                        onclick="startEditMinPrice(this)">Edit</button>
+              {% endif %}
+              <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+            </span>
+            <span class="min-price-edit" style="display:none;">
+              <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[8] }}" style="width:110px;">
+              <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+              <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+            </span>
+          </td>
+
+          {% if session.username %}
+            <td class="right">{{ item[9] }}</td>  {# Cost #}
+          {% endif %}
+
+        {% else %}
+          <!-- Other branches: single stock + free stock -->
+          <td class="right">{{ item[5] }}</td>  {# Stock #}
+          <td class="right">{{ item[6] }}</td>  {# Free Stock #}
+
+          <!-- Min. Price (effective) with inline Edit -->
+          <td class="right">
+            <span class="min-price-view" data-value="{{ item[7] }}">
+              <span class="min-price-text">{{ item[7] }}</span> AED
+              {% if session.username %}
+                <button type="button"
+                        class="mini-btn"
+                        data-item-code="{{ item[0] }}"
+                        data-branch="{{ branch }}"
+                        onclick="startEditMinPrice(this)">Edit</button>
+              {% endif %}
+              <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+            </span>
+            <span class="min-price-edit" style="display:none;">
+              <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[7] }}" style="width:110px;">
+              <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+              <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+            </span>
+          </td>
+
+          {% if session.username %}
+            <td class="right">{{ item[8] }}</td>  {# Cost #}
+          {% endif %}
+        {% endif %}
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
                     {% endif %}
                 {% endif %}
             </section>

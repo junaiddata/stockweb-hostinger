@@ -438,7 +438,31 @@
                                     <td>{{ item[1] }}</td>
                                     <td>{{ item[2] }}</td>
                                     <!-- <td>{{ item[3] }}</td> -->
-                                    <td>{{ item[4] }}</td>
+                                     {% if session.username %}
+    <!-- Inline Edit: Cost Price (ALABAMA) -->
+    <td>
+      <!-- VIEW MODE -->
+      <span class="min-price-view" data-value="{{ item[4] }}">
+        <span class="min-price-text">{{ item[4] }}</span> AED
+        <button type="button"
+                class="mini-btn"
+                data-item-code="{{ item[0] }}"
+                data-branch="{{ branch }}"
+                onclick="startEditMinPrice(this)">
+          Edit
+        </button>
+        <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+      </span>
+      <!-- EDIT MODE -->
+      <span class="min-price-edit" style="display:none;">
+        <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[4] }}" style="width:110px;">
+        <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+        <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+      </span>
+    </td>
+  {% else %}
+    <td>{{ item[4] }} AED</td>
+  {% endif %}
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -687,10 +711,11 @@ async function saveMinPriceRow(btn) {
       body: JSON.stringify({ branch, item_code: itemCode, min_price })
     });
     const data = await res.json();
+    const newVal = (data.min_price ?? data.price ?? min_price);  // <-- add this
     if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
 
     // Update view mode text + data-value
-    const normalized = String(data.min_price);
+    const normalized = String(newVal);
     text.textContent = normalized;
     view.dataset.value = normalized;
 
