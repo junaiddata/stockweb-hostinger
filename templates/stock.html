@@ -468,31 +468,65 @@
                             </tbody>
                         </table>
                     {% else %}
-                        <div class="results-cards-container">
-                            {% for item in results %}
-                            <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}" class="result-card {% if item[5] == 0 %}zero-stock{% endif %}">
-                                <div class="card-header">
-                                    <span class="description">{{ item[2] }}</span>
-                                    <span class="stock-badge {% if item[5] > 0 %}in-stock{% else %}out-of-stock{% endif %}">
-                                        {% if item[5] > 0 %}
-                                            In Stock
-                                        {% else %}
-                                            Out of Stock
-                                        {% endif %}
-                                    </span>
-                                </div>
-                                <div class="card-body">
-                                    <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[6] }}</p>
-                                    <p><strong>Item Code:</strong> {{ item[0] }}</p>
-                                    <p><strong>UPC Code:</strong> {{ item[1] }}</p>
-                                    <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
-                                    {% if session.username %}
-                                    <p><strong>Cost Price:</strong> {{ item[8] }} AED</p>
-                                    {% endif %}
-                                </div>
-                            </a>
-                            {% endfor %}
+  {# Non-ALABAMA mobile cards #}
+  {% if branch == 'DIP' %}
+    <!-- Mobile cards for DIP page: DIP + RAS + Free + Sold + Min + Cost -->
+    <div class="results-cards-container">
+      {% for item in results %}
+      <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
+         class="result-card {% if (item[5] or 0) == 0 and (item[6] or 0) == 0 %}zero-stock{% endif %}">
+        <div class="card-header">
+          <span class="description">{{ item[2] }}</span>
+          {% set any_stock = (item[5] or 0) + (item[6] or 0) %}
+          <span class="stock-badge {% if any_stock > 0 %}in-stock{% else %}out-of-stock{% endif %}">
+            {% if any_stock > 0 %}In Stock{% else %}Out of Stock{% endif %}
+          </span>
+        </div>
+
+        <div class="card-body">
+          <div class="pill-row">
+            <span class="pill">DIP: <b>{{ item[5] }}</b></span>
+            <span class="pill alt">RAS: <b>{{ item[6] }}</b></span>
+            <span class="pill neutral">Free: <b>{{ item[7] }}</b></span>
+            <!-- <span class="pill warn">Sold: <b>{{ item[10] }}</b></span> -->
+          </div>
+
+          <p><strong>Item Code:</strong> {{ item[0] }}</p>
+          <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+          <p><strong>Min. Price:</strong> {{ item[8] }} AED</p>
+          {% if session.username %}
+            <p><strong>Cost Price:</strong> {{ item[9] }} AED</p>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+                {% else %}
+                    <!-- Other branches: simple layout (Stock + Free + Min + Cost) -->
+                    <div class="results-cards-container">
+                    {% for item in results %}
+                    <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
+                        class="result-card {% if item[5] == 0 %}zero-stock{% endif %}">
+                        <div class="card-header">
+                        <span class="description">{{ item[2] }}</span>
+                        <span class="stock-badge {% if item[5] > 0 %}in-stock{% else %}out-of-stock{% endif %}">
+                            {% if item[5] > 0 %}In Stock{% else %}Out of Stock{% endif %}
+                        </span>
                         </div>
+                        <div class="card-body">
+                        <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[7] }}</p>
+                        <p><strong>Item Code:</strong> {{ item[0] }}</p>
+                        <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+                        <p><strong>Min. Price:</strong> {{ item[8] }} AED</p>
+                        {% if session.username %}
+                            <p><strong>Cost Price:</strong> {{ item[9] }} AED</p>
+                        {% endif %}
+                        </div>
+                    </a>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+    
 
 <table class="results-table">
   <thead class="table-light">
