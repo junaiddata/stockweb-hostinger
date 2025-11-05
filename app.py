@@ -4,6 +4,8 @@ import pandas as pd
 import os
 from flask import Flask, request, render_template, redirect, url_for, session, flash
 from werkzeug.security import check_password_hash, generate_password_hash
+import requests
+
 
 app = Flask(__name__)
 
@@ -28,6 +30,34 @@ DB_PATHS = {
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+
+# add anywhere near your helpers
+def fetch_sold_map():
+    """
+    Returns: dict { "ITEMCODE": total_qty_sold }
+    Pulls from https://do.junaidworld.com/api/items/unique-qty
+    """
+    url = "https://do.junaidworld.com/api/items/unique-qty"
+    try:
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        data = r.json() or {}
+        sold = {}
+        for row in (data.get("results") or []):
+            code = str(row.get("item_code", "")).strip()
+            qty  = row.get("total_qty", 0)
+            try:
+                qty = float(qty)
+            except Exception:
+                qty = 0
+            if code:
+                sold[code] = qty
+        return sold
+    except Exception as e:
+        # Don't break the page if API is down
+        print("Sold API error:", e)
+        return {}
+    
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -278,11 +308,11 @@ def stock_page(branch):
                             si."Description",            -- 2
                             si."Manufacturer Name",      -- 3
                             si."Warehouse Code",         -- 4
-                            si."Stock Quantity"      AS "DIP Stock",  -- 5
-                            COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock", -- 6
-                            si."Free Stock",              -- 7
+                            si."Stock Quantity"      AS "DIP Stock",            -- 5
+                            COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",  -- 6
+                            si."Free Stock",                                    -- 7
                             COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price", -- 8
-                            si."CostPrice"                -- 9
+                            si."CostPrice"                                      -- 9
                         FROM stock_items si
                         LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
                         LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
@@ -340,6 +370,16 @@ def stock_page(branch):
             # --- Execute ---
             cursor.execute(sql_query, params)
             results = cursor.fetchall()
+
+            # If DIP page, append Sold Stock as last column (index 10)
+            if branch == "DIP":
+                sold_map = fetch_sold_map()
+                # 0 ItemCode, 1 Upc, 2 Desc, 3 Mfg, 4 Warehouse,
+                # 5 DIP Stock, 6 RAS Stock, 7 Free, 8 MinPrice(eff), 9 Cost
+                results = [
+                    row + (sold_map.get(str(row[0]).strip(), 0),)
+                    for row in results
+                ]
 
             # Detach attached DB (only if we attached it)
             if branch == "DIP":

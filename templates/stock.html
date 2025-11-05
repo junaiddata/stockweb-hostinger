@@ -508,6 +508,7 @@
         <th class="right">DIP Stock</th>
         <th class="right">RAS Stock</th>
         <th class="right">Free Stock</th>
+        <th class="right">Sold Stock</th>
       {% else %}
         <th class="right">Stock</th>
         <th class="right">Free Stock</th>
@@ -536,6 +537,7 @@
           <td class="right">{{ item[5] }}</td>  {# DIP Stock (si."Stock Quantity") #}
           <td class="right">{{ item[6] }}</td>  {# RAS Stock (rsi."Stock Quantity") #}
           <td class="right">{{ item[7] }}</td>  {# Free Stock #}
+          <td class="right">{{ item[10] }}</td>  {# Sold Stock (from API) #}
 
           <!-- Min. Price (effective) with inline Edit -->
           <td class="right">
