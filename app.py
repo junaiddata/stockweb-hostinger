@@ -389,14 +389,31 @@ def stock_page(branch):
                     pass
 
             conn.close()
-
+    total_value = None
+    if "username" in session and branch != "ALABAMA":
+        db_path = DB_PATHS[branch]
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                SUM(
+                    CAST("Stock Quantity" AS REAL) * CAST("CostPrice" AS REAL)
+                )
+            FROM stock_items
+            WHERE CAST("Stock Quantity" AS REAL) > 0
+            AND CAST("CostPrice" AS REAL) > 0
+        """)
+        val = cur.fetchone()[0]
+        conn.close()
+        total_value = round(val or 0, 2)
     return render_template(
         "stock.html",
         results=results,
         query=query,
         hide_zero_stock=hide_zero_stock,
         hide_zero_cost=hide_zero_cost,
-        branch=branch
+        branch=branch,
+        total_value=total_value
     )
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):

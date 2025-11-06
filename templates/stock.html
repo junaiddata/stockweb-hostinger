@@ -338,6 +338,33 @@
         .results-table a:hover {
             text-decoration: underline;
         }
+                /* Total Stock Value banner (outside search container) */
+        .total-stock-value-banner {
+        align-self: flex-end;      /* push to right edge of page container */
+        margin-top: -10px;
+        margin-bottom: 10px;
+        background: #0d47a1;
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 25px;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+        }
+        .total-stock-value-banner strong {
+        font-size: 1.05rem;
+        font-weight: 600;
+        }
+        @media (max-width: 768px) {
+        .total-stock-value-banner {
+            align-self: center;  /* center it on smaller screens */
+            font-size: 0.95rem;
+        }
+        }
+
 
         /* Media Query for switching between cards and table */
         @media (min-width: 768px) {
@@ -397,6 +424,12 @@
                     </div>
                 </form>
             </section>
+            {% if session.username and total_value is not none %}
+            <div class="total-stock-value-banner">
+            <span>Total Current Stock Value:</span>
+            <strong>{{ "{:,.2f}".format(total_value) }} AED</strong>
+            </div>
+            {% endif %}
         
             {% if results is not none %}
             <section class="results-section">
