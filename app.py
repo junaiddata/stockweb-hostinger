@@ -389,23 +389,41 @@ def stock_page(branch):
                     pass
 
             conn.close()
-    total_value = None
-    if "username" in session and branch != "ALABAMA":
-        db_path = DB_PATHS[branch]
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT
-                SUM(
-                    CAST("Stock Quantity" AS REAL) * CAST("CostPrice" AS REAL)
-                )
-            FROM stock_items
-            WHERE CAST("Stock Quantity" AS REAL) > 0
-            AND CAST("CostPrice" AS REAL) > 0
-        """)
-        val = cur.fetchone()[0]
-        conn.close()
-        total_value = round(val or 0, 2)
+    # total_value = None
+    # if "username" in session and branch != "ALABAMA":
+    #     db_path = DB_PATHS[branch]
+    #     conn = sqlite3.connect(db_path)
+    #     cur = conn.cursor()
+    #     cur.execute("""
+    #         SELECT
+    #             SUM(
+    #                 CAST("Stock Quantity" AS REAL) * CAST("CostPrice" AS REAL)
+    #             )
+    #         FROM stock_items
+    #         WHERE CAST("Stock Quantity" AS REAL) > 0
+    #         AND CAST("CostPrice" AS REAL) > 0
+    #     """)
+    #     val = cur.fetchone()[0]
+    #     conn.close()
+    #     total_value = round(val or 0, 2)
+
+    filtered_total_value = None
+    if "username" in session and results is not None and branch != "ALABAMA":
+        try:
+            if branch == "DIP":
+                # DIP page column map (from your SELECT):
+                # 5 = DIP Stock, 9 = Cost
+                filtered_total_value = round(sum(
+                    float(row[5] or 0) * float(row[9] or 0) for row in results
+                ), 2)
+            else:
+                # RAS & other non-ALABAMA:
+                # 5 = Stock, 8 = Cost
+                filtered_total_value = round(sum(
+                    float(row[5] or 0) * float(row[8] or 0) for row in results
+                ), 2)
+        except Exception:
+            filtered_total_value = 0.0
     return render_template(
         "stock.html",
         results=results,
@@ -413,7 +431,7 @@ def stock_page(branch):
         hide_zero_stock=hide_zero_stock,
         hide_zero_cost=hide_zero_cost,
         branch=branch,
-        total_value=total_value
+        total_value=filtered_total_value
     )
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):
