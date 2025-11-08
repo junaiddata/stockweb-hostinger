@@ -290,9 +290,9 @@
             font-weight: 500;
         }
 
-        /* Table Styles (Hidden by default) */
+        /* Table Styles (Desktop) */
         .results-table {
-            display: none;
+            display: none; /* Hidden by default */
             width: 100%;
             border-collapse: collapse;
             background: var(--card-background);
@@ -309,16 +309,14 @@
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            white-space: nowrap; /* <-- KEY FIX: Prevents header text from wrapping */
         }
 
         .results-table td {
             padding: 1rem;
             border-bottom: 1px solid var(--border-color);
             font-size: 0.95rem;
-            word-break: break-word; /* Allow long text in data cells to wrap */
         }
-        
+
         .results-table tbody tr {
             transition: background-color 0.2s ease;
         }
@@ -340,84 +338,58 @@
         .results-table a:hover {
             text-decoration: underline;
         }
-        
-        /* Total Stock Value banner */
+                /* Total Stock Value banner (outside search container) */
         .total-stock-value-banner {
-            align-self: flex-end;
-            margin-top: -10px;
-            margin-bottom: 10px;
-            background: #0d47a1;
-            color: #fff;
-            padding: 10px 16px;
-            border-radius: 25px;
-            box-shadow: 0 3px 8px rgba(0,0,0,0.15);
-            font-weight: 500;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            white-space: nowrap;
+        align-self: flex-end;      /* push to right edge of page container */
+        margin-top: -10px;
+        margin-bottom: 10px;
+        background: #0d47a1;
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 25px;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
         }
         .total-stock-value-banner strong {
-            font-size: 1.05rem;
-            font-weight: 600;
+        font-size: 1.05rem;
+        font-weight: 600;
         }
+        @media (max-width: 768px) {
+        .total-stock-value-banner {
+            align-self: center;  /* center it on smaller screens */
+            font-size: 0.95rem;
+        }
+        }
+
+
+        /* Media Query for switching between cards and table */
+        @media (min-width: 768px) {
+            .results-cards-container {
+                display: none;
+            }
+            .results-table {
+                display: table;
+            }
+            .controls {
+                justify-content: flex-end; /* Align controls to the right on desktop */
+            }
+            button[type="submit"] {
+                width: auto; /* Auto width on larger screens */
+            }
+        }
+
+
 
         .mini-btn {
-            padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
-            background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
-        }
-        .mini-btn:hover { background: #f5f5f5; }
-        .mini-btn.neutral { color: #555; }
-
-
-        /* --- RESPONSIVE STYLES --- */
-
-        /* Mobile */
-        @media (max-width: 767px) {
-            .total-stock-value-banner {
-                align-self: center;
-                font-size: 0.95rem;
-            }
-        }
-
-        /* Tablet View */
-        @media (min-width: 768px) and (max-width: 1024px) {
-            .results-cards-container {
-                display: none;
-            }
-            .results-table {
-                display: table;
-            }
-            .controls {
-                justify-content: space-between;
-            }
-            button[type="submit"] {
-                width: auto;
-                max-width: 120px;
-            }
-            /* Reduce table padding for tablets */
-            .results-table th, .results-table td {
-                padding: 0.75rem;
-                font-size: 0.85rem;
-            }
-        }
-
-        /* Desktop View */
-        @media (min-width: 1025px) {
-            .results-cards-container {
-                display: none;
-            }
-            .results-table {
-                display: table;
-            }
-            .controls {
-                justify-content: flex-end;
-            }
-            button[type="submit"] {
-                width: auto;
-            }
-        }
-
+  padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
+  background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.mini-btn:hover { background: #f5f5f5; }
+.mini-btn.neutral { color: #555; }
     </style>
 </head>
 <body>
