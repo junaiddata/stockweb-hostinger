@@ -290,9 +290,9 @@
             font-weight: 500;
         }
 
-        /* Table Styles (Desktop) */
+        /* Table Styles (Hidden by default) */
         .results-table {
-            display: none; /* Hidden by default */
+            display: none;
             width: 100%;
             border-collapse: collapse;
             background: var(--card-background);
@@ -309,14 +309,16 @@
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            white-space: nowrap; /* <-- KEY FIX: Prevents header text from wrapping */
         }
 
         .results-table td {
             padding: 1rem;
             border-bottom: 1px solid var(--border-color);
             font-size: 0.95rem;
+            word-break: break-word; /* Allow long text in data cells to wrap */
         }
-
+        
         .results-table tbody tr {
             transition: background-color 0.2s ease;
         }
@@ -338,36 +340,48 @@
         .results-table a:hover {
             text-decoration: underline;
         }
-                /* Total Stock Value banner (outside search container) */
+        
+        /* Total Stock Value banner */
         .total-stock-value-banner {
-        align-self: flex-end;      /* push to right edge of page container */
-        margin-top: -10px;
-        margin-bottom: 10px;
-        background: #0d47a1;
-        color: #fff;
-        padding: 10px 16px;
-        border-radius: 25px;
-        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
-        font-weight: 500;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        white-space: nowrap;
+            align-self: flex-end;
+            margin-top: -10px;
+            margin-bottom: 10px;
+            background: #0d47a1;
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 25px;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            white-space: nowrap;
         }
         .total-stock-value-banner strong {
-        font-size: 1.05rem;
-        font-weight: 600;
-        }
-        @media (max-width: 768px) {
-        .total-stock-value-banner {
-            align-self: center;  /* center it on smaller screens */
-            font-size: 0.95rem;
-        }
+            font-size: 1.05rem;
+            font-weight: 600;
         }
 
+        .mini-btn {
+            padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
+            background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
+        }
+        .mini-btn:hover { background: #f5f5f5; }
+        .mini-btn.neutral { color: #555; }
 
-        /* Media Query for switching between cards and table */
-        @media (min-width: 768px) {
+
+        /* --- RESPONSIVE STYLES --- */
+
+        /* Mobile */
+        @media (max-width: 767px) {
+            .total-stock-value-banner {
+                align-self: center;
+                font-size: 0.95rem;
+            }
+        }
+
+        /* Tablet View */
+        @media (min-width: 768px) and (max-width: 1024px) {
             .results-cards-container {
                 display: none;
             }
@@ -375,21 +389,35 @@
                 display: table;
             }
             .controls {
-                justify-content: flex-end; /* Align controls to the right on desktop */
+                justify-content: space-between;
             }
             button[type="submit"] {
-                width: auto; /* Auto width on larger screens */
+                width: auto;
+                max-width: 120px;
+            }
+            /* Reduce table padding for tablets */
+            .results-table th, .results-table td {
+                padding: 0.75rem;
+                font-size: 0.85rem;
             }
         }
 
+        /* Desktop View */
+        @media (min-width: 1025px) {
+            .results-cards-container {
+                display: none;
+            }
+            .results-table {
+                display: table;
+            }
+            .controls {
+                justify-content: flex-end;
+            }
+            button[type="submit"] {
+                width: auto;
+            }
+        }
 
-
-        .mini-btn {
-  padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
-  background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
-}
-.mini-btn:hover { background: #f5f5f5; }
-.mini-btn.neutral { color: #555; }
     </style>
 </head>
 <body>
@@ -424,12 +452,16 @@
                     </div>
                 </form>
             </section>
-            {% if session.username and total_value is not none %}
-            <div class="total-stock-value-banner">
-            <span>Total Current Stock Value:</span>
-            <strong>{{ "{:,.2f}".format(total_value) }} AED</strong>
-            </div>
+        {% if session.username and query and (dip_total_value is not none or ras_total_value is not none) %}
+        <div class="total-stock-value-banner">
+            {% if dip_total_value is not none %}
+            <span><b>Stock Value — DIP:</b> {{ "{:,.2f}".format(dip_total_value) }} AED</span>
             {% endif %}
+            {% if ras_total_value is not none %}
+            <span style="margin-left:14px;"><b>RAS:</b> {{ "{:,.2f}".format(ras_total_value) }} AED</span>
+            {% endif %}
+        </div>
+        {% endif %}
         
             {% if results is not none %}
             <section class="results-section">
@@ -574,6 +606,7 @@
       {% if branch == 'DIP' %}
         <th class="right">DIP Stock</th>
         <th class="right">RAS Stock</th>
+        <th class="right">Total Stock</th>   {# 👈 NEW #}
         <th class="right">Free Stock</th>
         <th class="right">Sold Stock</th>
       {% else %}
@@ -603,8 +636,9 @@
           <!-- DIP page shows both DIP & RAS stock -->
           <td class="right">{{ item[5] }}</td>  {# DIP Stock (si."Stock Quantity") #}
           <td class="right">{{ item[6] }}</td>  {# RAS Stock (rsi."Stock Quantity") #}
+          <td class="right">{{ item[10] }}</td>  {# Total (SQL computed) 👈 #}
           <td class="right">{{ item[7] }}</td>  {# Free Stock #}
-          <td class="right">{{ item[10] }}</td>  {# Sold Stock (from API) #}
+          <td class="right">{{ item[11] }}</td>  {# Sold Stock (from API) #}
 
           <!-- Min. Price (effective) with inline Edit -->
           <td class="right">

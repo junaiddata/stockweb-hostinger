@@ -312,7 +312,8 @@ def stock_page(branch):
                             COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",  -- 6
                             si."Free Stock",                                    -- 7
                             COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price", -- 8
-                            si."CostPrice"                                      -- 9
+                            si."CostPrice" ,                                     -- 9
+                            (COALESCE(si."Stock Quantity",0) + COALESCE(rsi."Stock Quantity",0)) AS "Total Stock" -- 10
                         FROM stock_items si
                         LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
                         LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
@@ -407,23 +408,51 @@ def stock_page(branch):
     #     conn.close()
     #     total_value = round(val or 0, 2)
 
-    filtered_total_value = None
+    # ---- compute filtered totals for current results (only when logged in) ----
+    dip_total_value = None
+    ras_total_value = None
+
     if "username" in session and results is not None and branch != "ALABAMA":
         try:
             if branch == "DIP":
-                # DIP page column map (from your SELECT):
-                # 5 = DIP Stock, 9 = Cost
-                filtered_total_value = round(sum(
-                    float(row[5] or 0) * float(row[9] or 0) for row in results
-                ), 2)
-            else:
-                # RAS & other non-ALABAMA:
-                # 5 = Stock, 8 = Cost
-                filtered_total_value = round(sum(
-                    float(row[5] or 0) * float(row[8] or 0) for row in results
-                ), 2)
+                # DIP SELECT has both stocks already:
+                # 5 = DIP Stock, 6 = RAS Stock, 9 = Cost
+                dip_total_value = round(sum(float(row[5] or 0) * float(row[9] or 0) for row in results), 2)
+                ras_total_value = round(sum(float(row[6] or 0) * float(row[9] or 0) for row in results), 2)
+
+            elif branch == "RASALKHORE":
+                # RAS SELECT has only its own stock:
+                # 0 = ItemCode, 5 = RAS Stock, 8 = Cost
+                # First sum RAS value from current results
+                ras_total_value = round(sum(float(row[5] or 0) * float(row[8] or 0) for row in results), 2)
+
+                # For DIP value on the RAS page, query DIP DB for these ItemCodes
+                item_codes = [str(row[0]).strip() for row in results if row and row[0]]
+                if item_codes:
+                    placeholders = ",".join(["?"] * len(item_codes))
+                    dip_db_path = DB_PATHS["DIP"]
+                    conn2 = sqlite3.connect(dip_db_path)
+                    cur2 = conn2.cursor()
+                    cur2.execute(f'''
+                        SELECT
+                            si."ItemCode",
+                            CAST(si."Stock Quantity" AS REAL) AS dip_stock,
+                            CAST(si."CostPrice" AS REAL)       AS cost
+                        FROM stock_items si
+                        WHERE si."ItemCode" IN ({placeholders})
+                    ''', item_codes)
+                    dip_rows = cur2.fetchall()
+                    conn2.close()
+                    dip_total_value = 0.0
+                    for code, dip_stock, cost in dip_rows:
+                        try:
+                            dip_total_value += float(dip_stock or 0) * float(cost or 0)
+                        except Exception:
+                            pass
+                    dip_total_value = round(dip_total_value, 2)
         except Exception:
-            filtered_total_value = 0.0
+            dip_total_value = dip_total_value if dip_total_value is not None else 0.0
+            ras_total_value = ras_total_value if ras_total_value is not None else 0.0
     return render_template(
         "stock.html",
         results=results,
@@ -431,7 +460,8 @@ def stock_page(branch):
         hide_zero_stock=hide_zero_stock,
         hide_zero_cost=hide_zero_cost,
         branch=branch,
-        total_value=filtered_total_value
+        dip_total_value=dip_total_value,
+        ras_total_value=ras_total_value
     )
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):
