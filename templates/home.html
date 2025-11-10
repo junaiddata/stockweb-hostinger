@@ -5,11 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Home - Stock Management</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -18,192 +14,87 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      padding: 0;
       overflow-x: hidden;
     }
 
     /* Header */
     .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 16px 20px;
-      position: sticky;
-      top: 0;
-      background: rgba(0, 7, 45, 0.95);
-      backdrop-filter: blur(10px);
-      z-index: 100;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 20px; position: sticky; top: 0;
+      background: rgba(0, 7, 45, 0.95); backdrop-filter: blur(10px);
+      z-index: 100; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
-
-    .logo {
-      width: 180px;
-      height: auto;
-      max-width: 45vw;
-    }
+    .logo { width: 180px; height: auto; max-width: 45vw; }
 
     .auth-btn {
       background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-      color: white;
-      padding: 10px 20px;
-      border-radius: 25px;
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: all 0.3s ease;
-      box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
-      border: none;
-      white-space: nowrap;
+      color: white; padding: 10px 20px; border-radius: 25px; text-decoration: none;
+      font-size: 14px; font-weight: 500; transition: all 0.3s ease; border: none;
+      box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3); white-space: nowrap;
     }
-
     .auth-btn.logout {
       background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
       box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
     }
+    .auth-btn:active { transform: scale(0.95); }
 
-    .auth-btn:active {
-      transform: scale(0.95);
-    }
-
-    /* Main Content */
+    /* Main */
     .main-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
+      flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;
       padding: 40px 20px;
     }
-
     h1 {
-      font-size: 32px;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 40px;
+      font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 40px;
       background: linear-gradient(135deg, #ffffff 0%, #a8c5ff 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
       letter-spacing: -0.5px;
     }
 
     .branch-container {
-      width: 100%;
-      max-width: 400px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
+      width: 100%; max-width: 400px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .section-title {
+      margin: 8px 0 -4px; /* tight like design 2 */
+      font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px;
+      color: rgba(255,255,255,0.7);
     }
 
     .branch-link {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px 30px;
-      background: rgba(255, 255, 255, 0.08);
-      backdrop-filter: blur(10px);
-      color: white;
-      text-decoration: none;
-      border-radius: 16px;
-      font-size: 18px;
-      font-weight: 600;
-      transition: all 0.3s ease;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      position: relative;
-      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px 30px; background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(10px); color: white; text-decoration: none;
+      border-radius: 16px; font-size: 18px; font-weight: 600; transition: all 0.3s ease;
+      border: 1px solid rgba(255, 255, 255, 0.1); position: relative; overflow: hidden;
     }
-
     .branch-link::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
+      content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
       background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
       transition: left 0.5s ease;
     }
+    .branch-link:hover::before { left: 100%; }
+    .branch-link:active { transform: scale(0.98); background: rgba(255, 255, 255, 0.12); }
 
-    .branch-link:hover::before {
-      left: 100%;
-    }
-
-    .branch-link:active {
-      transform: scale(0.98);
-      background: rgba(255, 255, 255, 0.12);
-    }
-
-    /* Mobile Optimizations */
+    /* Mobile */
     @media (max-width: 768px) {
-      .header {
-        padding: 12px 16px;
-      }
-
-      .logo {
-        width: 150px;
-      }
-
-      .auth-btn {
-        padding: 8px 16px;
-        font-size: 13px;
-      }
-
-      h1 {
-        font-size: 28px;
-        margin-bottom: 32px;
-      }
-
-      .branch-link {
-        padding: 18px 24px;
-        font-size: 17px;
-        border-radius: 14px;
-      }
-
-      .main-content {
-        padding: 32px 20px;
-      }
+      .header { padding: 12px 16px; }
+      .logo { width: 150px; }
+      .auth-btn { padding: 8px 16px; font-size: 13px; }
+      h1 { font-size: 28px; margin-bottom: 32px; }
+      .branch-link { padding: 18px 24px; font-size: 17px; border-radius: 14px; }
+      .main-content { padding: 32px 20px; }
     }
-
     @media (max-width: 480px) {
-      .header {
-        padding: 12px 16px;
-      }
-
-      .logo {
-        width: 130px;
-      }
-
-      .auth-btn {
-        padding: 8px 14px;
-        font-size: 12px;
-      }
-
-      h1 {
-        font-size: 24px;
-        margin-bottom: 28px;
-      }
-
-      .branch-link {
-        padding: 16px 20px;
-        font-size: 16px;
-        border-radius: 12px;
-      }
-
-      .branch-container {
-        gap: 12px;
-      }
-
-      .main-content {
-        padding: 24px 16px;
-      }
+      .header { padding: 12px 16px; }
+      .logo { width: 130px; }
+      .auth-btn { padding: 8px 14px; font-size: 12px; }
+      h1 { font-size: 24px; margin-bottom: 28px; }
+      .branch-link { padding: 16px 20px; font-size: 16px; border-radius: 12px; }
+      .branch-container { gap: 12px; }
+      .main-content { padding: 24px 16px; }
     }
-
-    /* Touch feedback */
-    @media (hover: none) {
-      .branch-link:active {
-        background: rgba(255, 255, 255, 0.15);
-      }
-    }
+    @media (hover: none) { .branch-link:active { background: rgba(255, 255, 255, 0.15); } }
   </style>
 </head>
 <body>
@@ -220,10 +111,22 @@
   <!-- Main Content -->
   <div class="main-content">
     <h1>Stock Search System</h1>
+
     <div class="branch-container">
+      <!-- Core -->
+      <div class="section-title">Core</div>
       <a href="{{ url_for('headoffice') }}" class="branch-link">Head Office</a>
       <a href="{{ url_for('rasalkhor') }}" class="branch-link">Ras Al Khor</a>
       <a href="{{ url_for('alabama') }}" class="branch-link">Alabama (Price Only)</a>
+
+      <!-- Retail -->
+      <!-- <div class="section-title">Retail Branches</div>
+      <a href="{{ url_for('ajman') }}" class="branch-link">Ajman</a>
+      <a href="{{ url_for('nah') }}" class="branch-link">NAH</a>
+      <a href="{{ url_for('deira') }}" class="branch-link">Deira</a>
+      <a href="{{ url_for('deira2') }}" class="branch-link">Deira 2</a>
+      <a href="{{ url_for('abudhabi') }}" class="branch-link">Abu Dhabi</a>
+      <a href="{{ url_for('qusais') }}" class="branch-link">Qusais</a> -->
     </div>
   </div>
 </body>

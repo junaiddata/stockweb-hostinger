@@ -24,12 +24,7 @@
             --border-radius: 12px;
         }
 
-        /* General Reset & Body Styles */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'Poppins', sans-serif;
@@ -41,15 +36,8 @@
             padding: 1rem;
         }
 
-        .app-container {
-            width: 100%;
-            max-width: 900px;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
+        .app-container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 1.5rem; }
 
-        /* Header */
         header {
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             color: var(--white-color);
@@ -66,12 +54,8 @@
             box-shadow: 0 4px 15px var(--shadow-medium);
         }
 
-        header img {
-            width: 80px;
-            height: auto;
-        }
+        header img { width: 80px; height: auto; }
 
-        /* Search Section */
         .search-section {
             background: var(--card-background);
             padding: 1.5rem;
@@ -79,11 +63,7 @@
             box-shadow: 0 4px 15px var(--shadow-light);
         }
         
-        .search-input-wrapper {
-            position: relative;
-            display: flex;
-            align-items: center;
-        }
+        .search-input-wrapper { position: relative; display: flex; align-items: center; }
 
         input[type="text"] {
             width: 100%;
@@ -95,309 +75,150 @@
             transition: all 0.3s ease;
         }
 
-        input[type="text"]:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 8px rgba(13, 71, 161, 0.2);
-        }
+        input[type="text"]:focus { border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
 
         #voiceSearchBtn {
-            position: absolute;
-            right: 5px;
-            width: 40px;
-            height: 40px;
-            background: none;
-            border: none;
-            color: var(--text-light);
-            font-size: 1.5rem;
-            cursor: pointer;
-            transition: color 0.3s ease;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            position: absolute; right: 5px; width: 40px; height: 40px; background: none; border: none;
+            color: var(--text-light); font-size: 1.5rem; cursor: pointer; transition: color 0.3s ease;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
         }
 
-        #voiceSearchBtn:hover {
-            color: var(--primary-color);
-            background-color: #f0f0f0;
-        }
+        #voiceSearchBtn:hover { color: var(--primary-color); background-color: #f0f0f0; }
 
-        .controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 1rem;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; flex-wrap: wrap; gap: 1rem; }
 
-        /* Custom Toggle Switch */
-        .toggle-switch {
-            display: flex;
-            align-items: center;
-            font-size: 0.9rem;
-            color: var(--text-light);
-            cursor: pointer;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
+        .toggle-switch { display: flex; align-items: center; font-size: 0.9rem; color: var(--text-light); cursor: pointer; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
 
         .slider {
-            position: relative;
-            width: 40px;
-            height: 22px;
-            background-color: #ccc;
-            border-radius: 22px;
-            transition: background-color 0.3s;
-            margin-right: 10px;
+            position: relative; width: 40px; height: 22px; background-color: #ccc; border-radius: 22px;
+            transition: background-color 0.3s; margin-right: 10px;
         }
 
         .slider:before {
-            position: absolute;
-            content: "";
-            height: 16px;
-            width: 16px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            border-radius: 50%;
-            transition: transform 0.3s;
+            position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+            background-color: white; border-radius: 50%; transition: transform 0.3s;
         }
 
-        input:checked + .slider {
-            background-color: var(--primary-color);
-        }
-
-        input:checked + .slider:before {
-            transform: translateX(18px);
-        }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(18px); }
 
         button[type="submit"] {
-            width: 100%;
-            max-width: 150px;
-            padding: 12px;
-            font-size: 1rem;
-            font-weight: 600;
+            width: 100%; max-width: 150px; padding: 12px; font-size: 1rem; font-weight: 600;
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            color: var(--white-color);
-            border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 10px rgba(13, 71, 161, 0.2);
+            color: var(--white-color); border: none; border-radius: 25px; cursor: pointer;
+            transition: all 0.3s ease; box-shadow: 0 4px 10px rgba(13, 71, 161, 0.2);
         }
 
-        button[type="submit"]:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(13, 71, 161, 0.3);
-        }
+        button[type="submit"]:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(13, 71, 161, 0.3); }
         
-        /* Disclaimer Footer */
-        footer {
-            text-align: center;
-            font-size: 0.8rem;
-            color: var(--text-light);
-            margin-top: 1rem;
-        }
+        footer { text-align: center; font-size: 0.8rem; color: var(--text-light); margin-top: 1rem; }
 
-        /* Results Section */
-        .results-section {
-            margin-top: 1rem;
-        }
-
-        h3 {
-            margin-bottom: 1rem;
-            font-weight: 600;
-        }
+        .results-section { margin-top: 1rem; }
+        h3 { margin-bottom: 1rem; font-weight: 600; }
         
         .no-results {
-            text-align: center;
-            padding: 2rem;
-            background: var(--card-background);
-            border-radius: var(--border-radius);
-            color: var(--text-light);
+            text-align: center; padding: 2rem; background: var(--card-background);
+            border-radius: var(--border-radius); color: var(--text-light);
         }
 
-        /* Card Styles (Mobile First) */
-        .results-cards-container {
-            display: grid;
-            gap: 1rem;
-        }
+        .results-cards-container { display: grid; gap: 1rem; }
 
         .result-card {
-            background: var(--card-background);
-            border-radius: var(--border-radius);
-            box-shadow: 0 4px 15px var(--shadow-light);
-            padding: 1rem;
+            background: var(--card-background); border-radius: var(--border-radius);
+            box-shadow: 0 4px 15px var(--shadow-light); padding: 1rem;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
-            text-decoration: none;
-            color: inherit;
-            border-left: 5px solid var(--secondary-color);
+            text-decoration: none; color: inherit; border-left: 5px solid var(--secondary-color);
         }
-        
-        .result-card.zero-stock {
-            border-left-color: var(--error-color);
-        }
+        .result-card.zero-stock { border-left-color: var(--error-color); }
 
-        .result-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 20px var(--shadow-medium);
-        }
+        .result-card:hover { transform: translateY(-5px); box-shadow: 0 6px 20px var(--shadow-medium); }
 
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 0.75rem;
-        }
-        
-        .card-header .description {
-            font-weight: 600;
-            font-size: 1.1rem;
-            padding-right: 1rem;
-        }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+        .card-header .description { font-weight: 600; font-size: 1.1rem; padding-right: 1rem; }
 
         .stock-badge {
-            font-size: 0.8rem;
-            font-weight: 600;
-            padding: 0.25rem 0.75rem;
-            border-radius: 15px;
-            color: var(--white-color);
-            white-space: nowrap;
+            font-size: 0.8rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 15px;
+            color: var(--white-color); white-space: nowrap;
         }
+        .in-stock { background-color: var(--success-color); color: var(--white-color); }
+        .out-of-stock { background-color: var(--error-color); }
+        
+        .card-body p { font-size: 0.9rem; color: var(--text-light); margin-bottom: 0.25rem; }
+        .card-body p strong { color: var(--text-color); font-weight: 500; }
 
-        .in-stock {
-            background-color: var(--success-color);
-            color: var(--white-color);
-        }
-        
-        .out-of-stock {
-            background-color: var(--error-color);
-        }
-        
-        .card-body p {
-            font-size: 0.9rem;
-            color: var(--text-light);
-            margin-bottom: 0.25rem;
-        }
-        
-        .card-body p strong {
-            color: var(--text-color);
-            font-weight: 500;
-        }
-
-        /* Table Styles (Desktop) */
         .results-table {
-            display: none; /* Hidden by default */
-            width: 100%;
-            border-collapse: collapse;
-            background: var(--card-background);
-            border-radius: var(--border-radius);
-            overflow: hidden;
-            box-shadow: 0 4px 15px var(--shadow-light);
+            display: none; width: 100%; border-collapse: collapse; background: var(--card-background);
+            border-radius: var(--border-radius); overflow: hidden; box-shadow: 0 4px 15px var(--shadow-light);
         }
 
         .results-table th {
-            background: var(--primary-color);
-            color: var(--white-color);
-            padding: 1rem;
-            text-align: left;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            background: var(--primary-color); color: var(--white-color); padding: 1rem;
+            text-align: left; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;
         }
 
-        .results-table td {
-            padding: 1rem;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 0.95rem;
-        }
+        .results-table td { padding: 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.95rem; }
 
-        .results-table tbody tr {
-            transition: background-color 0.2s ease;
-        }
-        
-        .results-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-        
-        .results-table tbody tr:hover {
-            background-color: #f8f9fa;
-        }
-        
-        .results-table a {
-            color: var(--primary-color);
-            text-decoration: none;
-            font-weight: 600;
-        }
-        
-        .results-table a:hover {
-            text-decoration: underline;
-        }
-                /* Total Stock Value banner (outside search container) */
+        .results-table tbody tr { transition: background-color 0.2s ease; }
+        .results-table tbody tr:last-child td { border-bottom: none; }
+        .results-table tbody tr:hover { background-color: #f8f9fa; }
+
+        .results-table a { color: var(--primary-color); text-decoration: none; font-weight: 600; }
+        .results-table a:hover { text-decoration: underline; }
+
         .total-stock-value-banner {
-        align-self: flex-end;      /* push to right edge of page container */
-        margin-top: -10px;
-        margin-bottom: 10px;
-        background: #0d47a1;
-        color: #fff;
-        padding: 10px 16px;
-        border-radius: 25px;
-        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
-        font-weight: 500;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        white-space: nowrap;
+            align-self: flex-end;
+            margin-top: -10px; margin-bottom: 10px;
+            background: #0d47a1; color: #fff; padding: 10px 16px; border-radius: 25px;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.15); font-weight: 500;
+            display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
         }
-        .total-stock-value-banner strong {
-        font-size: 1.05rem;
-        font-weight: 600;
-        }
-        @media (max-width: 768px) {
-        .total-stock-value-banner {
-            align-self: center;  /* center it on smaller screens */
-            font-size: 0.95rem;
-        }
-        }
+        .total-stock-value-banner strong { font-size: 1.05rem; font-weight: 600; }
+        @media (max-width: 768px) { .total-stock-value-banner { align-self: center; font-size: 0.95rem; } }
 
-
-        /* Media Query for switching between cards and table */
         @media (min-width: 768px) {
-            .results-cards-container {
-                display: none;
-            }
-            .results-table {
-                display: table;
-            }
-            .controls {
-                justify-content: flex-end; /* Align controls to the right on desktop */
-            }
-            button[type="submit"] {
-                width: auto; /* Auto width on larger screens */
-            }
+            .results-cards-container { display: none; }
+            .results-table { display: table; }
+            .controls { justify-content: flex-end; }
+            button[type="submit"] { width: auto; }
         }
-
-
 
         .mini-btn {
-  padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
-  background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
+            padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
+            background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
+        }
+        .mini-btn:hover { background: #f5f5f5; }
+        .mini-btn.neutral { color: #555; }
+
+        .totals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-top: 16px;
+  font-size: 14px;
+  color: #020a23;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.1);
 }
-.mini-btn:hover { background: #f5f5f5; }
-.mini-btn.neutral { color: #555; }
+
+.total-item {
+  margin: 4px 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
     </style>
 </head>
 <body>
     <div class="app-container">
-        <header>
-            <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Company Logo">
-            <span>Stock Search - {{ branch|title }}</span>
-        </header>
+        <a href="/" style="text-decoration: none;">
+            <header>
+                <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Company Logo">
+                <span>Stock Search - {{ branch|title }}</span>
+            </header>
+        </a>
 
         <main>
             <section class="search-section">
@@ -424,16 +245,26 @@
                     </div>
                 </form>
             </section>
-        {% if session.username and query and (dip_total_value is not none or ras_total_value is not none) %}
-        <div class="total-stock-value-banner">
-            {% if dip_total_value is not none %}
-            <span><b>Stock Value — DIP:</b> {{ "{:,.2f}".format(dip_total_value) }} AED</span>
-            {% endif %}
-            {% if ras_total_value is not none %}
-            <span style="margin-left:14px;"><b>RAS:</b> {{ "{:,.2f}".format(ras_total_value) }} AED</span>
-            {% endif %}
-        </div>
-        {% endif %}
+
+{% if session.username and query %}
+  <div class="totals" style="margin-top:12px">
+    {% if branch == 'DIP' and branch_totals %}
+      {% set order = ['DIP','RAS','AJMAN','NAH','DEIRA','DEIRA2','ABUDHABI','QUSAIS'] %}
+      {% for name in order %}
+        <!-- {% if branch_totals.get(name) is not none %}
+          <span class="total-item">{{ name }} : {{ branch_totals[name]|default(0)|money }} AED</span>
+        {% endif %} -->
+      {% endfor %}
+    <!-- {% elif branch == 'RASALKHORE' %}
+      <span class="total-item">RAS : {{ ras_total_value|default(0)|money }} AED</span>
+      <span class="total-item">DIP : {{ dip_total_value|default(0)|money }} AED</span>
+    {% else %}
+      {% if branch_total_value is not none %}
+        <span class="total-item">{{ branch }} : {{ branch_total_value|default(0)|money }} AED</span> {# Total stock value for this branch #}
+      {% endif %}
+    {% endif %} -->
+  </div>
+{% endif %}
         
             {% if results is not none %}
             <section class="results-section">
@@ -451,7 +282,6 @@
                                 <div class="card-body">
                                     <p><strong>Item Code:</strong> {{ item[0] }}</p>
                                     <p><strong>UPC Code:</strong> {{ item[1] }}</p>
-                                    <!-- <p><strong>Manufacturer:</strong> {{ item[3] }}</p> -->
                                     <p><strong> Price:</strong> {{ item[4] }}</p>
                                 </div>
                             </div>
@@ -464,7 +294,6 @@
                                     <th>Item Code</th>
                                     <th>UPC</th>
                                     <th>Description</th>
-                                    <!-- <th>Manufacturer</th> -->
                                     <th> Price</th>
                                 </tr>
                             </thead>
@@ -474,32 +303,31 @@
                                     <td>{{ item[0] }}</td>
                                     <td>{{ item[1] }}</td>
                                     <td>{{ item[2] }}</td>
-                                    <!-- <td>{{ item[3] }}</td> -->
-                                     {% if session.username %}
-    <!-- Inline Edit: Cost Price (ALABAMA) -->
-    <td>
-      <!-- VIEW MODE -->
-      <span class="min-price-view" data-value="{{ item[4] }}">
-        <span class="min-price-text">{{ item[4] }}</span> AED
-        <button type="button"
-                class="mini-btn"
-                data-item-code="{{ item[0] }}"
-                data-branch="{{ branch }}"
-                onclick="startEditMinPrice(this)">
-          Edit
-        </button>
-        <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
-      </span>
-      <!-- EDIT MODE -->
-      <span class="min-price-edit" style="display:none;">
-        <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[4] }}" style="width:110px;">
-        <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
-        <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
-      </span>
-    </td>
-  {% else %}
-    <td>{{ item[4] }} AED</td>
-  {% endif %}
+                                    {% if session.username %}
+                                    <!-- Inline Edit: Cost Price (ALABAMA) -->
+                                    <td>
+                                      <!-- VIEW MODE -->
+                                      <span class="min-price-view" data-value="{{ item[4] }}">
+                                        <span class="min-price-text">{{ item[4] }}</span> AED
+                                        <button type="button"
+                                                class="mini-btn"
+                                                data-item-code="{{ item[0] }}"
+                                                data-branch="{{ branch }}"
+                                                onclick="startEditMinPrice(this)">
+                                          Edit
+                                        </button>
+                                        <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+                                      </span>
+                                      <!-- EDIT MODE -->
+                                      <span class="min-price-edit" style="display:none;">
+                                        <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[4] }}" style="width:110px;">
+                                        <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+                                        <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+                                      </span>
+                                    </td>
+                                    {% else %}
+                                      <td>{{ item[4] }} AED</td>
+                                    {% endif %}
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -507,7 +335,7 @@
                     {% else %}
   {# Non-ALABAMA mobile cards #}
   {% if branch == 'DIP' %}
-    <!-- Mobile cards for DIP page: DIP + RAS + Free + Sold + Min + Cost -->
+    <!-- Mobile cards for DIP page: DIP + RAS + Free + Min + Cost -->
     <div class="results-cards-container">
       {% for item in results %}
       <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
@@ -525,7 +353,6 @@
             <span class="pill">DIP: <b>{{ item[5] }}</b></span>
             <span class="pill alt">RAS: <b>{{ item[6] }}</b></span>
             <span class="pill neutral">Free: <b>{{ item[7] }}</b></span>
-            <!-- <span class="pill warn">Sold: <b>{{ item[10] }}</b></span> -->
           </div>
 
           <p><strong>Item Code:</strong> {{ item[0] }}</p>
@@ -539,7 +366,7 @@
       {% endfor %}
     </div>
                 {% else %}
-                    <!-- Other branches: simple layout (Stock + Free + Min + Cost) -->
+                    <!-- Other branches (RAS & retail pages): simple layout (Stock + Free + Min + Cost) -->
                     <div class="results-cards-container">
                     {% for item in results %}
                     <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
@@ -551,12 +378,12 @@
                         </span>
                         </div>
                         <div class="card-body">
-                        <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[7] }}</p>
+                        <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[6] }}</p>
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
-                        <p><strong>Min. Price:</strong> {{ item[8] }} AED</p>
+                        <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
                         {% if session.username %}
-                            <p><strong>Cost Price:</strong> {{ item[9] }} AED</p>
+                            <p><strong>Cost Price:</strong> {{ item[8] }} AED</p>
                         {% endif %}
                         </div>
                     </a>
@@ -573,12 +400,11 @@
       <th>UPC</th>
       <th>Description</th>
       <th>Manufacturer</th>
-      
 
       {% if branch == 'DIP' %}
         <th class="right">DIP Stock</th>
         <th class="right">RAS Stock</th>
-        <th class="right">Total Stock</th>   {# 👈 NEW #}
+        <th class="right">Total Stock</th>
         <th class="right">Free Stock</th>
         <th class="right">Sold Stock</th>
       {% else %}
@@ -593,8 +419,7 @@
 
   <tbody>
     {% for item in results %}
-      {# Row highlight for zero DIP stock on DIP page; otherwise normal stock #}
-      <tr class="{% if branch == 'DIP' %}{% if item[5] == 0 %}zero-stock{% endif %}{% else %}{% if item[5] == 0 %}zero-stock{% endif %}{% endif %}">
+      <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
         <td>{{ loop.index }}</td>
 
         <!-- Common columns -->
@@ -602,15 +427,25 @@
         <td>{{ item[1] }}</td>
         <td>{{ item[2] }}</td>
         <td>{{ item[3] }}</td>
-        
 
         {% if branch == 'DIP' %}
           <!-- DIP page shows both DIP & RAS stock -->
-          <td class="right">{{ item[5] }}</td>  {# DIP Stock (si."Stock Quantity") #}
-          <td class="right">{{ item[6] }}</td>  {# RAS Stock (rsi."Stock Quantity") #}
-          <td class="right">{{ item[10] }}</td>  {# Total (SQL computed) 👈 #}
+          <td class="right">{{ item[5] }}</td>  {# DIP Stock #}
+          <td class="right">{{ item[6] }}</td>  {# RAS Stock #}
+          <td class="right">{{ item[10] }}</td> {# Total Stock #}
           <td class="right">{{ item[7] }}</td>  {# Free Stock #}
-          <td class="right">{{ item[11] }}</td>  {# Sold Stock (from API) #}
+          {# Sold cell: keep total at [11], add HO/Others below #}
+          <td class="right sold-cell">
+            {{ item[11]|default(0) }}
+            <div class="sold-sub">
+              <span>HO: {{ item[12]|default(0) }}</span>
+              <span style="margin-left:8px;">Others: {{ item[13]|default(0) }}</span>
+            </div>
+          </td>
+          <style>
+          .sold-cell { white-space: nowrap; }
+          .sold-sub { font-size: 11px; opacity: .85; margin-top: 2px; line-height: 1.2; }
+        </style>
 
           <!-- Min. Price (effective) with inline Edit -->
           <td class="right">
@@ -681,7 +516,6 @@
     </div>
 
     <script>
-        // Function to hide rows/cards with zero stock quantity
         function hideZeroStockItems() {
             const stockToggle = document.getElementById("hideZeroStock");
             if (!stockToggle) return;
@@ -717,16 +551,13 @@
             });
         }
         
-        // Attach event listener to the checkbox
         const stockToggleEl = document.getElementById("hideZeroStock");
         if (stockToggleEl) stockToggleEl.addEventListener("change", hideZeroStockItems);
         const costToggleEl = document.getElementById("hideZeroCost");
         if (costToggleEl) costToggleEl.addEventListener("change", hideZeroCostItems);
         
-        // Run the function on page load to set the initial state
         window.addEventListener("load", () => { hideZeroStockItems(); hideZeroCostItems(); });
 
-        // --- Voice Search Functionality (Unchanged) ---
         function startVoiceSearch() {
             if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
                 alert("Your browser does not support voice search. Please use Google Chrome.");
@@ -741,7 +572,7 @@
 
             console.log("🎤 Voice recognition started...");
             const voiceBtn = document.getElementById("voiceSearchBtn");
-            voiceBtn.innerHTML = "🎧"; // Using a different icon for listening state
+            voiceBtn.innerHTML = "🎧";
 
             recognition.onresult = function(event) {
                 let speechResult = event.results[0][0].transcript;
@@ -763,95 +594,86 @@
             recognition.start();
         }
 
-        // Attach event listener to the voice search button
         document.getElementById("voiceSearchBtn").addEventListener("click", startVoiceSearch);
 
+        function findPartsFromAnyChild(el) {
+          const td = el.closest('td');
+          return {
+            td,
+            view: td.querySelector('.min-price-view'),
+            edit: td.querySelector('.min-price-edit'),
+            text: td.querySelector('.min-price-text'),
+            input: td.querySelector('.min-price-input'),
+            status: td.querySelector('.save-status'),
+            btn: td.querySelector('button[data-item-code]')
+          };
+        }
 
+        function startEditMinPrice(btn) {
+          const { view, edit, input } = findPartsFromAnyChild(btn);
+          if (!view || !edit) return;
+          const current = (view.dataset.value || '').trim();
+          if (current) input.value = current;
+          view.style.display = 'none';
+          edit.style.display = 'inline';
+          input.focus();
+          input.select();
+        }
 
+        function cancelEditMinPrice(btn) {
+          const { view, edit, input } = findPartsFromAnyChild(btn);
+          if (!view || !edit) return;
+          const orig = (view.dataset.value || '').trim();
+          if (orig) input.value = orig;
+          edit.style.display = 'none';
+          view.style.display = 'inline';
+        }
 
-    function findPartsFromAnyChild(el) {
-  // Works whether user clicked inside VIEW or EDIT span
-  const td = el.closest('td');
-  return {
-    td,
-    view: td.querySelector('.min-price-view'),
-    edit: td.querySelector('.min-price-edit'),
-    text: td.querySelector('.min-price-text'),
-    input: td.querySelector('.min-price-input'),
-    status: td.querySelector('.save-status'),
-    btn: td.querySelector('button[data-item-code]')
-  };
-}
+        async function saveMinPriceRow(btn) {
+          const { view, edit, text, input, status, btn: viewBtn } = findPartsFromAnyChild(btn);
+          if (!view || !edit || !viewBtn) return;
 
-function startEditMinPrice(btn) {
-  const { view, edit, input } = findPartsFromAnyChild(btn);
-  if (!view || !edit) return;
-  // Seed input with current value
-  const current = (view.dataset.value || '').trim();
-  if (current) input.value = current;
-  view.style.display = 'none';
-  edit.style.display = 'inline';
-  input.focus();
-  input.select();
-}
+          const itemCode = viewBtn.dataset.itemCode;
+          const branch = viewBtn.dataset.branch;
 
-function cancelEditMinPrice(btn) {
-  const { view, edit, input } = findPartsFromAnyChild(btn);
-  if (!view || !edit) return;
-  // Reset input back to original
-  const orig = (view.dataset.value || '').trim();
-  if (orig) input.value = orig;
-  edit.style.display = 'none';
-  view.style.display = 'inline';
-}
+          let raw = String(input.value || '').trim();
+          if (raw === '') raw = '0';
+          const min_price = Number(raw);
 
-async function saveMinPriceRow(btn) {
-  const { view, edit, text, input, status, btn: viewBtn } = findPartsFromAnyChild(btn);
-  if (!view || !edit || !viewBtn) return;
+          if (Number.isNaN(min_price) || min_price < 0) {
+            if (status) { status.textContent = 'Invalid'; status.style.color = 'var(--error-color, #c62828)'; }
+            return;
+          }
 
-  const itemCode = viewBtn.dataset.itemCode;
-  const branch = viewBtn.dataset.branch;
+          if (status) { status.textContent = 'Saving…'; status.style.color = ''; }
 
-  let raw = String(input.value || '').trim();
-  if (raw === '') raw = '0';
-  const min_price = Number(raw);
+          try {
+            const res = await fetch('/api/min-price', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ branch, item_code: itemCode, min_price })
+            });
+            const data = await res.json();
+            const newVal = (data.min_price ?? data.price ?? min_price);
+            if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
 
-  if (Number.isNaN(min_price) || min_price < 0) {
-    if (status) { status.textContent = 'Invalid'; status.style.color = 'var(--error-color, #c62828)'; }
-    return;
-  }
+            const normalized = String(newVal);
+            text.textContent = normalized;
+            view.dataset.value = normalized;
 
-  if (status) { status.textContent = 'Saving…'; status.style.color = ''; }
+            edit.style.display = 'none';
+            view.style.display = 'inline';
 
-  try {
-    const res = await fetch('/api/min-price', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ branch, item_code: itemCode, min_price })
-    });
-    const data = await res.json();
-    const newVal = (data.min_price ?? data.price ?? min_price);  // <-- add this
-    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
-
-    // Update view mode text + data-value
-    const normalized = String(newVal);
-    text.textContent = normalized;
-    view.dataset.value = normalized;
-
-    // Done → switch back to view mode
-    edit.style.display = 'none';
-    view.style.display = 'inline';
-
-    if (status) {
-      status.textContent = 'Saved';
-      status.style.color = 'var(--success-color, #2e7d32)';
-      setTimeout(() => { status.textContent = ''; }, 1500);
-    }
-  } catch (e) {
-    if (status) { status.textContent = 'Error'; status.style.color = 'var(--error-color, #c62828)'; }
-    console.error(e);
-  }
-}
+            if (status) {
+              status.textContent = 'Saved';
+              status.style.color = 'var(--success-color, #2e7d32)';
+              setTimeout(() => { status.textContent = ''; }, 1500);
+            }
+          } catch (e) {
+            if (status) { status.textContent = 'Error'; status.style.color = 'var(--error-color, #c62828)'; }
+            console.error(e);
+          }
+        }
     </script>
 </body>
 </html>
