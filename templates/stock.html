@@ -245,6 +245,77 @@
                     </div>
                 </form>
             </section>
+            {# ================= TOTAL STOCK VALUE (DIP PAGE) ================= #}
+            {% if session.username and results and branch == 'DIP' %}
+                {% set _total = dip_total_value|default(0) + ras_total_value|default(0) %}
+
+                {# Add all retail totals if branch_totals exists #}
+                {% if branch_totals %}
+                    {% for name, value in branch_totals.items() %}
+                        {% set _total = _total + value %}
+                    {% endfor %}
+                {% endif %}
+
+                <div class="totals" style="background:#1a237e; color:white; padding:8px 14px; border-radius:8px; margin-bottom:10px; font-weight:bold;">
+                    TOTAL STOCK VALUE: {{ "{:,.2f}".format(_total) }} AED
+                </div>
+            {% endif %}
+            {# Totals + matched count (only for logged-in users) #}
+            {% if session.username and results %}
+            <div class="totals">
+                <!-- <span class="total-item">
+                Matched items: {{ matched_count|default(0) }}
+                </span> -->
+
+                {# =============== DIP PAGE: show EVERYTHING we know =============== #}
+                {% if branch == 'DIP' %}
+
+                {# DIP & RAS totals #}
+                <!-- <span class="total-item">
+                    DIP Value: {{ dip_total_value|default(0)|money }}
+                </span>
+                <span class="total-item">
+                    RAS Value: {{ ras_total_value|default(0)|money }}
+                </span> -->
+
+                {# Any extra per-branch totals you passed in branch_totals (AJMAN, NAH, etc.) #}
+                {% if branch_totals %}
+                    {% for name, value in branch_totals.items() %}
+                    <span class="total-item">
+                        {{ name }} Value: {{ value|money }}
+                    </span>
+                    {% endfor %}
+                {% endif %}
+
+                {# =============== RAS PAGE: keep simple RAS + DIP =============== #}
+                {% elif branch == 'RASALKHORE' %}
+                <span class="total-item">
+                    RAS Value: {{ ras_total_value|default(0)|money }}
+                </span>
+                <span class="total-item">
+                    DIP Value: {{ dip_total_value|default(0)|money }}
+                </span>
+
+                {# =============== ALLSTORES: show branch_totals if provided ======= #}
+                {% elif branch == 'ALLSTORES' %}
+                {% if branch_totals %}
+                    {% for name, value in branch_totals.items() %}
+                    <span class="total-item">
+                        {{ name }} Value: {{ value|money }}
+                    </span>
+                    {% endfor %}
+                {% endif %}
+
+                {# =============== Retail branches: use branch_total_value ========= #}
+                {% else %}
+                {% if branch_total_value is not none %}
+                    <span class="total-item">
+                    {{ branch }} Value: {{ branch_total_value|default(0)|money }}
+                    </span>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
 
             {% if results is not none %}
             <section class="results-section">
@@ -450,11 +521,14 @@
                                 <th class="right">RAS Stock</th>
                                 <th class="right">Total Stock</th>
                                 <th class="right">Free Stock</th>
+                                {%if session.username %}
                                 <th class="right">Sold Stock</th>
+                                {% endif %}
                               {% else %}
                                 <th class="right">Stock</th>
                                 <th class="right">Free Stock</th>
                               {% endif %}
+
 
                               <th class="right">Min. Price</th>
                               {% if session.username %}<th class="right">Cost</th>{% endif %}
@@ -479,6 +553,7 @@
                                   <td class="right">{{ item[10] }}</td> {# Total Stock #}
                                   <td class="right">{{ item[7] }}</td>  {# Free Stock #}
                                   {# Sold breakdown: total/HO/Others are appended server-side #}
+                                  {% if session.username %}
                                   <td class="right sold-cell">
                                     {{ item[11]|default(0) }}
                                     <div class="sold-sub">
@@ -486,6 +561,7 @@
                                       <span style="margin-left:8px;">Others: {{ item[13]|default(0) }}</span>
                                     </div>
                                   </td>
+                                    {% endif %}
                                   <style>
                                     .sold-cell { white-space: nowrap; }
                                     .sold-sub { font-size: 11px; opacity: .85; margin-top: 2px; line-height: 1.2; }

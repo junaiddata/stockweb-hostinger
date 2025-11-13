@@ -465,27 +465,28 @@ def stock_page(branch):
 
             # If DIP page, append Sold Stock as last column (index 10)
             if branch == "DIP":
-                sold_map = fetch_sold_breakdown_map()
+                if session.get("username"):
+                    sold_map = fetch_sold_breakdown_map()
 
-                # <<< TEMP DEBUG: log a few suspicious entries >>>
-                # replace "ITEM_CODE_YOU_SAW_639" with the actual item code from the row
-                dbg_code = "700318"
-                if dbg_code in sold_map:
-                    print("DBG sold_map[", dbg_code, "] =", sold_map[dbg_code])
-                else:
-                    print("DBG sold_map missing code:", dbg_code)
+                    # <<< TEMP DEBUG: log a few suspicious entries >>>
+                    # replace "ITEM_CODE_YOU_SAW_639" with the actual item code from the row
+                    dbg_code = "700318"
+                    if dbg_code in sold_map:
+                        print("DBG sold_map[", dbg_code, "] =", sold_map[dbg_code])
+                    else:
+                        print("DBG sold_map missing code:", dbg_code)
 
-                def _g(code, key):
-                    return (sold_map.get(code, {}) or {}).get(key, 0.0)
+                    def _g(code, key):
+                        return (sold_map.get(code, {}) or {}).get(key, 0.0)
 
-                results = [
-                    row + (
-                        _g(str(row[0]).strip(), "total"),
-                        _g(str(row[0]).strip(), "ho"),
-                        _g(str(row[0]).strip(), "others"),
-                    )
-                    for row in results
-                ]
+                    results = [
+                        row + (
+                            _g(str(row[0]).strip(), "total"),
+                            _g(str(row[0]).strip(), "ho"),
+                            _g(str(row[0]).strip(), "others"),
+                        )
+                        for row in results
+                    ]
 
             # Detach attached DB (only if we attached it)
             if branch == "DIP":

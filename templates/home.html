@@ -122,6 +122,13 @@
       <!-- Retail -->
        <div class="section-title">Retail Branches</div>
       <a href="{{ url_for('allstores') }}" class="branch-link">Stores</a>
+
+      {% if session.username %}
+             <div class="section-title">Analysis</div>
+      <a href="https://app.powerbi.com/view?r=eyJrIjoiYmQ5YWJmN2YtYzUxMy00NzU5LTkzODUtNWEwODk4YzUzMWVkIiwidCI6ImRkYTlkYTBlLTc4NzMtNDNkOS05N2U1LWUwN2RmNjZmNWE2MyJ9" class="branch-link">Data Analysis</a>
+      {% endif %}
+
+
       <!--<a href="{{ url_for('nah') }}" class="branch-link">NAH</a>
       <a href="{{ url_for('deira') }}" class="branch-link">Deira</a>
       <a href="{{ url_for('deira2') }}" class="branch-link">Deira 2</a>
