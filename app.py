@@ -30,7 +30,7 @@ DB_PATHS = {
 }
 
 # Retail branch names exactly as your OUTPUT_DIP column headers
-RETAIL_BRANCHES = ["AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS"]
+RETAIL_BRANCHES = ["AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS","ALLSTORES"]
 
 
 def ensure_retail_override_table(db_path: str):
@@ -812,7 +812,7 @@ def update_min_price():
         return jsonify(ok=False, error=f"Invalid price: {price_val!r}"), 400
 
     # --- Retail branches (AJMAN, NAH, DEIRA, DEIRA2, ABUDHABI, QUSAIS) ---
-    if branch in RETAIL_BRANCHES:
+    if branch in RETAIL_BRANCHES or branch == "ALLSTORES":
         dip_db = DB_PATHS.get("DIP")
         if not dip_db or not os.path.exists(dip_db):
             return jsonify(ok=False, error=f"DIP DB not found: {os.path.abspath(dip_db or '')}"), 500
@@ -1101,6 +1101,97 @@ def money(v):
         return f"{float(v or 0):,.2f}"
     except Exception:
         return "0.00"
+    
+
+@app.route("/allstores", methods=["GET", "POST"])
+def allstores():
+    """
+    One row per item with retail branch columns:
+    [ItemCode, Upc, Description, AJMAN, NAH, DEIRA, DEIRA2, ABUDHABI, QUSAIS,
+     TotalRetail, MinPrice, Cost]
+    MinPrice can have its own ALLSTORES override (separate from DIP).
+    """
+    results = None
+    query = ""
+    hide_zero_stock = False
+
+    if request.method == "POST":
+        query = (request.form.get("query") or "").strip().lower()
+        hide_zero_stock = request.form.get("hideZeroStock") == "on"
+
+        # Build WHERE across ItemCode/UPC/Description/Manufacturer (all from si)
+        words = [w for w in query.split() if w]
+        where_sql = "1=1"
+        params = []
+        if words:
+            parts = []
+            for w in words:
+                wlike = f"%{w}%"
+                parts.append(
+                    """(
+                        LOWER(si."ItemCode") LIKE ? OR
+                        LOWER(si."Upc Code") LIKE ? OR
+                        LOWER(si."Description") LIKE ? OR
+                        LOWER(si."Manufacturer Name") LIKE ?
+                    )"""
+                )
+                params.extend([wlike, wlike, wlike, wlike])
+            where_sql = " AND ".join(parts)
+
+        dip_db = DB_PATHS["DIP"]
+
+        # make sure retail_overrides exists (for ALLSTORES overrides)
+        ensure_retail_override_table(dip_db)
+
+        conn = sqlite3.connect(dip_db)
+        cur = conn.cursor()
+
+        sql = f"""
+            SELECT
+              si."ItemCode",
+              si."Upc Code",
+              si."Description",
+              COALESCE(si."AJMAN", 0),
+              COALESCE(si."NAH", 0),
+              COALESCE(si."DEIRA", 0),
+              COALESCE(si."DEIRA2", 0),
+              COALESCE(si."ABUDHABI", 0),
+              COALESCE(si."QUSAIS", 0),
+              (
+                COALESCE(si."AJMAN", 0) + COALESCE(si."NAH", 0) +
+                COALESCE(si."DEIRA", 0) + COALESCE(si."DEIRA2", 0) +
+                COALESCE(si."ABUDHABI", 0) + COALESCE(si."QUSAIS", 0)
+              ) AS TotalRetail,
+              COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice,
+              COALESCE(si."CostPrice", 0) AS CostPrice
+            FROM stock_items si
+            LEFT JOIN retail_overrides ro
+              ON ro.ItemCode = si."ItemCode" AND ro.Branch = 'ALLSTORES'
+            WHERE {where_sql}
+            {" AND (" + " + ".join([
+                'COALESCE(si."AJMAN", 0)',
+                'COALESCE(si."NAH", 0)',
+                'COALESCE(si."DEIRA", 0)',
+                'COALESCE(si."DEIRA2", 0)',
+                'COALESCE(si."ABUDHABI", 0)',
+                'COALESCE(si."QUSAIS", 0)'
+            ]) + ") > 0" if hide_zero_stock else ""}
+            ORDER BY si."ItemCode"
+        """
+
+        cur.execute(sql, params)
+        results = cur.fetchall()
+        conn.close()
+
+    return render_template(
+        "stock.html",
+        results=results,
+        query=query,
+        hide_zero_stock=hide_zero_stock,
+        hide_zero_cost=False,
+        branch="ALLSTORES"
+    )
+
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000 , debug=True)
