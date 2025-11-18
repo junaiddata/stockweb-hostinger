@@ -386,7 +386,7 @@
                             </tbody>
                         </table>
 
-                    {# ================= ALL STORES (NEW) ================= #}
+                   {# ================= ALL STORES (NEW) ================= #}
                     {% elif branch == 'ALLSTORES' %}
                         <table class="results-table">
                             <thead>
@@ -404,11 +404,12 @@
                                     <th class="right">Total</th>
                                     <th class="right">Min. Price</th>
                                     {% if session.username %}<th class="right">Cost</th>{% endif %}
+                                    <th class="right">Cost Price 2</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for item in results %}
-                                {# index map: 0 code,1 upc,2 desc, 3..8 six branches, 9 total, 10 min, 11 cost #}
+                                {# index map: 0 code,1 upc,2 desc, 3..8 six branches, 9 total, 10 min, 11 cost, 12 costprice2 #}
                                 <tr class="{% if item[9] == 0 %}zero-stock{% endif %}">
                                     <td>{{ loop.index }}</td>
                                     <td><a href="{{ url_for('item_detail', branch='AJMAN', item_code=item[0]) }}">{{ item[0] }}</a></td>
@@ -442,6 +443,7 @@
                                     {% if session.username %}
                                         <td class="right">{{ item[11] }}</td>
                                     {% endif %}
+                                    <td class="right">{{ item[12]|money }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

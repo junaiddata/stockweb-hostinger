@@ -1164,7 +1164,12 @@ def allstores():
                 COALESCE(si."ABUDHABI", 0) + COALESCE(si."QUSAIS", 0)
               ) AS TotalRetail,
               COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice,
-              COALESCE(si."CostPrice", 0) AS CostPrice
+              COALESCE(si."CostPrice", 0) AS CostPrice,
+              CASE
+                WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
+                THEN COALESCE(si."CostPrice", 0)
+                ELSE (COALESCE(si."CostPrice", 0) * 1.03)
+              END AS "CostPrice 2"
             FROM stock_items si
             LEFT JOIN retail_overrides ro
               ON ro.ItemCode = si."ItemCode" AND ro.Branch = 'ALLSTORES'
@@ -1192,7 +1197,6 @@ def allstores():
         hide_zero_cost=False,
         branch="ALLSTORES"
     )
-
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000 , debug=True)
