@@ -30,7 +30,7 @@ DB_PATHS = {
 }
 
 # Retail branch names exactly as your OUTPUT_DIP column headers
-RETAIL_BRANCHES = ["AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS"]
+RETAIL_BRANCHES = ["AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS","ALLSTORES"]
 
 
 def ensure_retail_override_table(db_path: str):
@@ -350,185 +350,136 @@ def stock_page(branch):
     hide_zero_cost = False
 
     if request.method == "POST":
-        query = request.form.get("query", "").strip().lower()
+        query = (request.form.get("query") or "").strip().lower()
         if branch != "ALABAMA":
             hide_zero_stock = request.form.get("hideZeroStock") == "on"
         else:
             hide_zero_cost = request.form.get("hideZeroCost") == "on"
 
-        if query:
-            db_path = DB_PATHS[branch]
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+        # <-- RUN THE DB QUERY ON ANY POST (empty query => fetch all) -->
+        db_path = DB_PATHS[branch]
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        ensure_override_table(db_path)
 
-            # make sure overrides table exists for JOINs
-            ensure_override_table(db_path)
+        query_words = query.split()
 
-            # words for filtering
-            query_words = query.split()
-
-            # --- Build SELECT per-branch ---
-            if branch == "ALABAMA":
-                # ALABAMA shows effective CostPrice with override
+        if branch == "ALABAMA":
+            sql_query = """
+                SELECT
+                    si."ItemCode",
+                    si."Upc Code",
+                    si."Description",
+                    si."Manufacturer Name",
+                    COALESCE(po.CostPriceOverride, si."CostPrice") AS "CostPrice"
+                FROM stock_items si
+                LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                WHERE
+            """
+            col_item = 'si."ItemCode"'
+            col_upc  = 'si."Upc Code"'
+            col_desc = 'si."Description"'
+            col_mfg  = 'si."Manufacturer Name"'
+        else:
+            if branch == "DIP":
+                ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+                cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
                 sql_query = """
                     SELECT
                         si."ItemCode",
                         si."Upc Code",
                         si."Description",
                         si."Manufacturer Name",
-                        COALESCE(po.CostPriceOverride, si."CostPrice") AS "CostPrice"
+                        si."Warehouse Code",
+                        si."Stock Quantity" AS "DIP Stock",
+                        COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",
+                        si."Free Stock",
+                        COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
+                        si."CostPrice",
+                        (COALESCE(si."Stock Quantity",0) + COALESCE(rsi."Stock Quantity",0)) AS "Total Stock"
+                    FROM stock_items si
+                    LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
+                    LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                    WHERE
+                """
+            else:
+                sql_query = """
+                    SELECT
+                        si."ItemCode",
+                        si."Upc Code",
+                        si."Description",
+                        si."Manufacturer Name",
+                        si."Warehouse Code",
+                        si."Stock Quantity",
+                        si."Free Stock",
+                        COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
+                        si."CostPrice"
                     FROM stock_items si
                     LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
                     WHERE
                 """
-                col_item = 'si."ItemCode"'
-                col_upc  = 'si."Upc Code"'
-                col_desc = 'si."Description"'
-                col_mfg  = 'si."Manufacturer Name"'
-            else:
-                # Non-ALABAMA
-                if branch == "DIP":
-                    # Attach RAS DB to show RAS stock alongside DIP
-                    ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
-                    cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
+            col_item = 'si."ItemCode"'
+            col_upc  = 'si."Upc Code"'
+            col_desc = 'si."Description"'
+            col_mfg  = 'si."Manufacturer Name"'
 
-                    sql_query = """
-                        SELECT
-                            si."ItemCode",               -- 0
-                            si."Upc Code",               -- 1
-                            si."Description",            -- 2
-                            si."Manufacturer Name",      -- 3
-                            si."Warehouse Code",         -- 4
-                            si."Stock Quantity"      AS "DIP Stock",            -- 5
-                            COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",  -- 6
-                            si."Free Stock",                                    -- 7
-                            COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price", -- 8
-                            si."CostPrice" ,                                     -- 9
-                            (COALESCE(si."Stock Quantity",0) + COALESCE(rsi."Stock Quantity",0)) AS "Total Stock" -- 10
-                        FROM stock_items si
-                        LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
-                        LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-                        WHERE
-                    """
-                    col_item = 'si."ItemCode"'
-                    col_upc  = 'si."Upc Code"'
-                    col_desc = 'si."Description"'
-                    col_mfg  = 'si."Manufacturer Name"'
-                else:
-                    # RASALKHORE page (or any other non-ALABAMA branch)
-                    sql_query = """
-                        SELECT
-                            si."ItemCode",
-                            si."Upc Code",
-                            si."Description",
-                            si."Manufacturer Name",
-                            si."Warehouse Code",
-                            si."Stock Quantity",
-                            si."Free Stock",
-                            COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
-                            si."CostPrice"
-                        FROM stock_items si
-                        LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-                        WHERE
-                    """
-                    col_item = 'si."ItemCode"'
-                    col_upc  = 'si."Upc Code"'
-                    col_desc = 'si."Description"'
-                    col_mfg  = 'si."Manufacturer Name"'
+        # Build WHERE from words; if no words, default to 1=1 (all rows)
+        conditions = []
+        params = []
+        for w in query_words:
+            like = f"%{w}%"
+            conditions.append(
+                f"""(
+                    LOWER({col_item}) LIKE ? OR
+                    LOWER({col_upc})  LIKE ? OR
+                    LOWER({col_desc}) LIKE ? OR
+                    LOWER({col_mfg})  LIKE ?
+                )"""
+            )
+            params.extend([like, like, like, like])
 
-            # --- WHERE conditions (shared) ---
-            conditions = []
-            params = []
-            for w in query_words:
-                like = f"%{w}%"
-                conditions.append(
-                    f"""(
-                        LOWER({col_item}) LIKE ? OR
-                        LOWER({col_upc})  LIKE ? OR
-                        LOWER({col_desc}) LIKE ? OR
-                        LOWER({col_mfg})  LIKE ?
-                    )"""
+        sql_query += " AND ".join(conditions) if conditions else "1=1"
+
+        if branch != "ALABAMA" and hide_zero_stock:
+            sql_query += ' AND si."Stock Quantity" > 0'
+        if branch == "ALABAMA" and hide_zero_cost:
+            sql_query += ' AND CAST("CostPrice" AS REAL) > 0'
+
+        cursor.execute(sql_query, params)
+        results = cursor.fetchall()
+
+        if branch == "DIP":
+            sold_map = fetch_sold_breakdown_map()
+            def _g(code, key):
+                return (sold_map.get(code, {}) or {}).get(key, 0.0)
+            results = [
+                row + (
+                    _g(str(row[0]).strip(), "total"),
+                    _g(str(row[0]).strip(), "ho"),
+                    _g(str(row[0]).strip(), "others"),
                 )
-                params.extend([like, like, like, like])
+                for row in results
+            ]
+            try:
+                cursor.execute("DETACH DATABASE ras")
+            except Exception:
+                pass
 
-            sql_query += " AND ".join(conditions)
+        conn.close()
 
-            # Extra filters
-            if branch != "ALABAMA" and hide_zero_stock:
-                sql_query += ' AND si."Stock Quantity" > 0'
-            if branch == "ALABAMA" and hide_zero_cost:
-                sql_query += ' AND CAST("CostPrice" AS REAL) > 0'
-
-            # --- Execute ---
-            cursor.execute(sql_query, params)
-            results = cursor.fetchall()
-
-            # If DIP page, append Sold Stock as last column (index 10)
-            if branch == "DIP":
-                sold_map = fetch_sold_breakdown_map()
-
-                # <<< TEMP DEBUG: log a few suspicious entries >>>
-                # replace "ITEM_CODE_YOU_SAW_639" with the actual item code from the row
-                dbg_code = "700318"
-                if dbg_code in sold_map:
-                    print("DBG sold_map[", dbg_code, "] =", sold_map[dbg_code])
-                else:
-                    print("DBG sold_map missing code:", dbg_code)
-
-                def _g(code, key):
-                    return (sold_map.get(code, {}) or {}).get(key, 0.0)
-
-                results = [
-                    row + (
-                        _g(str(row[0]).strip(), "total"),
-                        _g(str(row[0]).strip(), "ho"),
-                        _g(str(row[0]).strip(), "others"),
-                    )
-                    for row in results
-                ]
-
-            # Detach attached DB (only if we attached it)
-            if branch == "DIP":
-                try:
-                    cursor.execute("DETACH DATABASE ras")
-                except Exception:
-                    pass
-
-            conn.close()
-    # total_value = None
-    # if "username" in session and branch != "ALABAMA":
-    #     db_path = DB_PATHS[branch]
-    #     conn = sqlite3.connect(db_path)
-    #     cur = conn.cursor()
-    #     cur.execute("""
-    #         SELECT
-    #             SUM(
-    #                 CAST("Stock Quantity" AS REAL) * CAST("CostPrice" AS REAL)
-    #             )
-    #         FROM stock_items
-    #         WHERE CAST("Stock Quantity" AS REAL) > 0
-    #         AND CAST("CostPrice" AS REAL) > 0
-    #     """)
-    #     val = cur.fetchone()[0]
-    #     conn.close()
-    #     total_value = round(val or 0, 2)
-
-    # ---- compute filtered totals for current results (only when logged in) ----
+    # --- totals computation remains unchanged ---
     dip_total_value = None
     ras_total_value = None
     matched_count = 0
-    branch_totals = None  # NEW: will hold DIP/RAS + all retail totals
+    branch_totals = None
 
     if "username" in session and results:
         matched_count = len(results)
         try:
             if branch == "DIP":
-                # From results (indexes per your SELECT):
-                # 5 = DIP Stock, 6 = RAS Stock, 9 = Cost
                 dip_total_value = round(sum(float(r[5] or 0) * float(r[9] or 0) for r in results), 2)
                 ras_total_value = round(sum(float(r[6] or 0) * float(r[9] or 0) for r in results), 2)
 
-                # Build a list of matched item codes
                 item_codes = [str(r[0]).strip() for r in results if r and r[0]]
                 branch_totals = {
                     "DIP": dip_total_value,
@@ -541,7 +492,6 @@ def stock_page(branch):
                     dip_db_path = DB_PATHS["DIP"]
                     conn2 = sqlite3.connect(dip_db_path)
                     cur2 = conn2.cursor()
-                    # Pull retail branch stocks + DIP cost for ONLY the matched items
                     cur2.execute(f'''
                         SELECT
                             si."ItemCode",
@@ -555,7 +505,6 @@ def stock_page(branch):
                         FROM stock_items si
                         WHERE si."ItemCode" IN ({placeholders})
                     ''', item_codes)
-
                     for _, cost, aj, nah, deira, deira2, abu, qus in cur2.fetchall():
                         c = float(cost or 0)
                         branch_totals["AJMAN"]    += float(aj or 0)    * c
@@ -566,16 +515,12 @@ def stock_page(branch):
                         branch_totals["QUSAIS"]   += float(qus or 0)   * c
 
                     conn2.close()
-
-                    # Round all totals
                     for k in list(branch_totals.keys()):
                         branch_totals[k] = round(branch_totals[k] or 0.0, 2)
 
             elif branch == "RASALKHORE":
-                # 5 = RAS Stock, 8 = Cost
                 ras_total_value = round(sum(float(r[5] or 0) * float(r[8] or 0) for r in results), 2)
 
-                # For DIP value, only for matched items
                 item_codes = [str(r[0]).strip() for r in results if r and r[0]]
                 dip_total_value = 0.0
                 if item_codes:
@@ -609,8 +554,10 @@ def stock_page(branch):
         dip_total_value=dip_total_value,
         ras_total_value=ras_total_value,
         matched_count=matched_count,
-        branch_totals=branch_totals,  # NEW
+        branch_totals=branch_totals,
     )
+
+
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):
     branch = (branch or "").upper()
@@ -812,7 +759,7 @@ def update_min_price():
         return jsonify(ok=False, error=f"Invalid price: {price_val!r}"), 400
 
     # --- Retail branches (AJMAN, NAH, DEIRA, DEIRA2, ABUDHABI, QUSAIS) ---
-    if branch in RETAIL_BRANCHES:
+    if branch in RETAIL_BRANCHES or branch == "ALLSTORES":
         dip_db = DB_PATHS.get("DIP")
         if not dip_db or not os.path.exists(dip_db):
             return jsonify(ok=False, error=f"DIP DB not found: {os.path.abspath(dip_db or '')}"), 500
@@ -1011,21 +958,83 @@ def qusais():
 
 
 def retail_page(retail_branch):
+    retail_branch = (retail_branch or "").strip().upper()
     results = None
     query = ""
     hide_zero_stock = False
 
+    if retail_branch != "ALLSTORES" and retail_branch not in RETAIL_BRANCHES_SET:
+        return render_template("stock.html", results=[], query="", branch=retail_branch), 404
+
     if request.method == "POST":
-        query = request.form.get("query", "").strip().lower()
+        query = (request.form.get("query") or "").strip().lower()
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
 
-        if query:
-            db_path = DB_PATHS["DIP"]
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            ensure_retail_override_table(db_path)
+        db_path = DB_PATHS["DIP"]
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        ensure_retail_override_table(db_path)
 
-            words = query.split()
+        words = query.split()
+        col_item = 'si."ItemCode"'
+        col_upc  = 'si."Upc Code"'
+        col_desc = 'si."Description"'
+        col_mfg  = 'si."Manufacturer Name"'
+
+        if retail_branch == "ALLSTORES":
+            sql = """
+                SELECT
+                    si."ItemCode",
+                    si."Upc Code",
+                    si."Description",
+                    CAST(COALESCE(si."AJMAN",    0) AS REAL)    AS aj,
+                    CAST(COALESCE(si."NAH",      0) AS REAL)    AS nah,
+                    CAST(COALESCE(si."DEIRA",    0) AS REAL)    AS deira,
+                    CAST(COALESCE(si."DEIRA2",   0) AS REAL)    AS deira2,
+                    CAST(COALESCE(si."ABUDHABI", 0) AS REAL)    AS abu,
+                    CAST(COALESCE(si."QUSAIS",   0) AS REAL)    AS qus,
+                    (
+                      CAST(COALESCE(si."AJMAN",    0) AS REAL) +
+                      CAST(COALESCE(si."NAH",      0) AS REAL) +
+                      CAST(COALESCE(si."DEIRA",    0) AS REAL) +
+                      CAST(COALESCE(si."DEIRA2",   0) AS REAL) +
+                      CAST(COALESCE(si."ABUDHABI", 0) AS REAL) +
+                      CAST(COALESCE(si."QUSAIS",   0) AS REAL)
+                    ) AS total_stock,
+                    COALESCE(
+                      (SELECT MIN(ro.SellingPriceOverride)
+                         FROM retail_overrides ro
+                        WHERE ro.ItemCode = si."ItemCode"
+                          AND ro.SellingPriceOverride IS NOT NULL),
+                      si."Selling Price"
+                    ) AS min_price,
+                    si."CostPrice" AS cost
+                FROM stock_items si
+                WHERE
+            """
+            conds, params = [], []
+            for w in words:
+                like = f"%{w}%"
+                conds.append(f"""(
+                    LOWER({col_item}) LIKE ? OR
+                    LOWER({col_upc})  LIKE ? OR
+                    LOWER({col_desc}) LIKE ? OR
+                    LOWER({col_mfg})  LIKE ?
+                )""")
+                params.extend([like, like, like, like])
+            sql += " AND ".join(conds) if conds else "1=1"
+            if hide_zero_stock:
+                sql += """
+                    AND (
+                        COALESCE(si."AJMAN",0)+COALESCE(si."NAH",0)+COALESCE(si."DEIRA",0)+
+                        COALESCE(si."DEIRA2",0)+COALESCE(si."ABUDHABI",0)+COALESCE(si."QUSAIS",0)
+                    ) > 0
+                """
+            cur.execute(sql, params)
+            results = cur.fetchall()
+
+        else:
+            stock_col = f'si."{retail_branch}"'
             sql = f"""
                 SELECT
                     si."ItemCode",
@@ -1033,7 +1042,7 @@ def retail_page(retail_branch):
                     si."Description",
                     si."Manufacturer Name",
                     si."Warehouse Code",
-                    COALESCE(si."{retail_branch}", 0) AS "RetailStock",
+                    COALESCE({stock_col}, 0) AS "RetailStock",
                     0 AS "Free Stock",
                     COALESCE(ro.SellingPriceOverride, si."Selling Price") AS "Selling Price",
                     si."CostPrice"
@@ -1042,11 +1051,6 @@ def retail_page(retail_branch):
                     ON ro.ItemCode = si."ItemCode" AND ro.Branch = ?
                 WHERE
             """
-            col_item = 'si."ItemCode"'
-            col_upc  = 'si."Upc Code"'
-            col_desc = 'si."Description"'
-            col_mfg  = 'si."Manufacturer Name"'
-
             conds, params = [], [retail_branch]
             for w in words:
                 like = f"%{w}%"
@@ -1057,24 +1061,24 @@ def retail_page(retail_branch):
                     LOWER({col_mfg})  LIKE ?
                 )""")
                 params.extend([like, like, like, like])
-
-            sql += " AND ".join(conds)
-
+            sql += " AND ".join(conds) if conds else "1=1"
             if hide_zero_stock:
-                sql += f' AND COALESCE(si."{retail_branch}", 0) > 0'
-
+                sql += f" AND COALESCE({stock_col}, 0) > 0"
             cur.execute(sql, params)
             results = cur.fetchall()
-            conn.close()
 
-    # ---- filtered totals from search results (only when logged in) ----
+        conn.close()
+
+    # totals unchanged...
     branch_total_value = None
     matched_count = 0
     if "username" in session and results:
         matched_count = len(results)
         try:
-            # 5 = RetailStock, 8 = Cost
-            branch_total_value = round(sum(float(r[5] or 0) * float(r[8] or 0) for r in results), 2)
+            if retail_branch == "ALLSTORES":
+                branch_total_value = round(sum(float(r[9] or 0) * float(r[11] or 0) for r in results), 2)
+            else:
+                branch_total_value = round(sum(float(r[5] or 0) * float(r[8] or 0) for r in results), 2)
         except Exception:
             branch_total_value = 0.0
 
@@ -1087,10 +1091,9 @@ def retail_page(retail_branch):
         "branch_total_value": branch_total_value,
         "matched_count": matched_count,
     }
-
-    # Optional: expose a branch-specific key (e.g., ajman_total_value)
     if branch_total_value is not None:
-        ctx[f"{retail_branch.lower()}_total_value"] = branch_total_value
+        key = "allstores_total_value" if retail_branch == "ALLSTORES" else f"{retail_branch.lower()}_total_value"
+        ctx[key] = branch_total_value
 
     return render_template("stock.html", **ctx)
 
@@ -1101,6 +1104,101 @@ def money(v):
         return f"{float(v or 0):,.2f}"
     except Exception:
         return "0.00"
+    
+
+@app.route("/allstores", methods=["GET", "POST"])
+def allstores():
+    """
+    One row per item with retail branch columns:
+    [ItemCode, Upc, Description, AJMAN, NAH, DEIRA, DEIRA2, ABUDHABI, QUSAIS,
+     TotalRetail, MinPrice, Cost]
+    MinPrice can have its own ALLSTORES override (separate from DIP).
+    """
+    results = None
+    query = ""
+    hide_zero_stock = False
+
+    if request.method == "POST":
+        query = (request.form.get("query") or "").strip().lower()
+        hide_zero_stock = request.form.get("hideZeroStock") == "on"
+
+        # Build WHERE across ItemCode/UPC/Description/Manufacturer (all from si)
+        words = [w for w in query.split() if w]
+        where_sql = "1=1"
+        params = []
+        if words:
+            parts = []
+            for w in words:
+                wlike = f"%{w}%"
+                parts.append(
+                    """(
+                        LOWER(si."ItemCode") LIKE ? OR
+                        LOWER(si."Upc Code") LIKE ? OR
+                        LOWER(si."Description") LIKE ? OR
+                        LOWER(si."Manufacturer Name") LIKE ?
+                    )"""
+                )
+                params.extend([wlike, wlike, wlike, wlike])
+            where_sql = " AND ".join(parts)
+
+        dip_db = DB_PATHS["DIP"]
+
+        # make sure retail_overrides exists (for ALLSTORES overrides)
+        ensure_retail_override_table(dip_db)
+
+        conn = sqlite3.connect(dip_db)
+        cur = conn.cursor()
+
+        sql = f"""
+            SELECT
+              si."ItemCode",
+              si."Upc Code",
+              si."Description",
+              COALESCE(si."AJMAN", 0),
+              COALESCE(si."NAH", 0),
+              COALESCE(si."DEIRA", 0),
+              COALESCE(si."DEIRA2", 0),
+              COALESCE(si."ABUDHABI", 0),
+              COALESCE(si."QUSAIS", 0),
+              (
+                COALESCE(si."AJMAN", 0) + COALESCE(si."NAH", 0) +
+                COALESCE(si."DEIRA", 0) + COALESCE(si."DEIRA2", 0) +
+                COALESCE(si."ABUDHABI", 0) + COALESCE(si."QUSAIS", 0)
+              ) AS TotalRetail,
+              COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice,
+              COALESCE(si."CostPrice", 0) AS CostPrice,
+              CASE
+                WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
+                THEN COALESCE(si."CostPrice", 0)
+                ELSE (COALESCE(si."CostPrice", 0) * 1.03)
+              END AS "CostPrice 2"
+            FROM stock_items si
+            LEFT JOIN retail_overrides ro
+              ON ro.ItemCode = si."ItemCode" AND ro.Branch = 'ALLSTORES'
+            WHERE {where_sql}
+            {" AND (" + " + ".join([
+                'COALESCE(si."AJMAN", 0)',
+                'COALESCE(si."NAH", 0)',
+                'COALESCE(si."DEIRA", 0)',
+                'COALESCE(si."DEIRA2", 0)',
+                'COALESCE(si."ABUDHABI", 0)',
+                'COALESCE(si."QUSAIS", 0)'
+            ]) + ") > 0" if hide_zero_stock else ""}
+            ORDER BY si."ItemCode"
+        """
+
+        cur.execute(sql, params)
+        results = cur.fetchall()
+        conn.close()
+
+    return render_template(
+        "stock.html",
+        results=results,
+        query=query,
+        hide_zero_stock=hide_zero_stock,
+        hide_zero_cost=False,
+        branch="ALLSTORES"
+    )
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000 , debug=True)

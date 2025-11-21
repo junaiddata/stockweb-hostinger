@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
     <style>
         :root {
             --primary-color: #0d47a1; /* Deep Blue */
@@ -241,6 +243,13 @@
                             Hide cost price = 0
                         </label>
                         {% endif %}
+                        
+                        <!-- NEW EXPORT BUTTON -->
+                        <!-- NEW EXPORT BUTTON -->
+                        <button type="button" onclick="exportToPDF()" style="background: linear-gradient(135deg, #d32f2f, #b71c1c); margin-right: 10px; min-width: 140px;">
+                            📄 Export PDF
+                        </button>
+                        
                         <button type="submit">Search</button>
                     </div>
                 </form>
@@ -792,6 +801,142 @@
             console.error(e);
           }
         }
+
+
+ async function exportToPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('l', 'mm', 'a4'); // Landscape for better column fit
+
+        // --- 1. SETTINGS & LOGO ---
+        const logoUrl = "/logo_proxy";
+        
+        // Helper to load image as Data URL (required for PDF)
+        const toDataURL = url => fetch(url)
+            .then(response => response.blob())
+            .then(blob => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            }));
+
+        try {
+            // Load logo - wait for it before generating PDF
+            const logoData = await toDataURL(logoUrl);
+            // Add Logo: x=14, y=10, width=30mm, height=auto (scaled)
+            doc.addImage(logoData, 'PNG', 14, 10, 30, 10); 
+        } catch (err) {
+            console.warn("Logo could not be loaded due to CORS or network error", err);
+            // We continue generating the PDF even if the logo fails
+        }
+
+        // --- 2. PREPARE DATA ---
+        const table = document.querySelector(".results-table");
+        if (!table) {
+            alert("No data found to export.");
+            return;
+        }
+
+        const rawHead = [];
+        const rawBody = [];
+        const excludedIndices = []; // To store indexes of "Cost" columns
+
+        // -- Parse Headers --
+        const ths = table.querySelectorAll("thead th");
+        const headRow = [];
+        ths.forEach((th, index) => {
+            const text = th.innerText.trim().toUpperCase();
+            // Identify Cost columns to hide
+            if (text.includes("COST")) {
+                excludedIndices.push(index);
+            } else {
+                headRow.push(th.innerText.trim());
+            }
+        });
+        rawHead.push(headRow);
+
+        // -- Parse Body Rows --
+        const trs = table.querySelectorAll("tbody tr");
+        trs.forEach(tr => {
+            // RESPECT TOGGLE: If row is hidden via CSS, skip it
+            if (getComputedStyle(tr).display === "none") return;
+
+            const rowData = [];
+            const tds = tr.querySelectorAll("td");
+
+            tds.forEach((td, index) => {
+                // Skip columns marked as Cost
+                if (excludedIndices.includes(index)) return;
+
+                // CLEAN TEXT: Remove "Edit", "Save" button text
+                let cellText = "";
+                
+                // Check if it's the Price column with the edit interface
+                if (td.querySelector(".min-price-text")) {
+                    // Extract just the price number + AED
+                    cellText = td.querySelector(".min-price-text").innerText.trim() + " AED";
+                } 
+                // Check if it's the Sold Stock column (HO/Others)
+                else if (td.querySelector(".sold-sub")) {
+                    // Format nicely: "50 (HO: 30 | Others: 20)"
+                    const mainVal = td.childNodes[0].textContent.trim();
+                    const ho = td.querySelector(".sold-sub span:nth-child(1)").innerText;
+                    const others = td.querySelector(".sold-sub span:nth-child(2)").innerText;
+                    cellText = `${mainVal}\n(${ho} | ${others})`;
+                } 
+                else {
+                    cellText = td.innerText.trim();
+                }
+                
+                rowData.push(cellText);
+            });
+            rawBody.push(rowData);
+        });
+
+        if (rawBody.length === 0) {
+            alert("No visible rows to export.");
+            return;
+        }
+
+        // --- 3. GENERATE PDF ---
+        // Header Text
+        const branchName = "{{ branch|title }}";
+        const today = new Date().toLocaleDateString();
+
+        doc.setFontSize(14);
+        doc.text(`Stock Report - ${branchName}`, 50, 18); // Offset X to not overlap logo
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${today}`, 50, 24);
+
+        doc.autoTable({
+            head: rawHead,
+            body: rawBody,
+            startY: 30, // Start below the logo
+            theme: 'grid',
+            styles: { 
+                fontSize: 8, 
+                cellPadding: 2, 
+                overflow: 'linebreak' 
+            },
+            headStyles: { 
+                fillColor: [13, 71, 161], // Deep Blue Header
+                textColor: 255,
+                fontStyle: 'bold'
+            },
+            alternateRowStyles: {
+                fillColor: [245, 247, 250] // Light gray stripe
+            },
+            // Specific column widths (Optional adjustments)
+            columnStyles: {
+                0: { cellWidth: 10 }, // # Index
+                1: { cellWidth: 25 }, // Item Code
+                2: { cellWidth: 25 }  // UPC
+            }
+        });
+
+        // Save File
+        doc.save(`Stock_Report_${branchName}_${Date.now()}.pdf`);
+    }
     </script>
 </body>
 </html>

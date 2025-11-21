@@ -1198,5 +1198,16 @@ def allstores():
         branch="ALLSTORES"
     )
 
+from flask import Response
+@app.route('/logo_proxy')
+def logo_proxy():
+    # Backend fetches the image (bypassing browser security)
+    img_url = "https://junaidworld.com/wp-content/uploads/2023/09/footer-logo.png"
+    try:
+        r = requests.get(img_url, timeout=5)
+        return Response(r.content, mimetype='image/png')
+    except Exception as e:
+        return "", 404
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000 , debug=True)
