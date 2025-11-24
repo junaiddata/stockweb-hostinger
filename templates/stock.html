@@ -395,7 +395,7 @@
                             </tbody>
                         </table>
 
-                   {# ================= ALL STORES (NEW) ================= #}
+{# ================= ALL STORES (UPDATED WITH RAS) ================= #}
                     {% elif branch == 'ALLSTORES' %}
                         <table class="results-table">
                             <thead>
@@ -410,7 +410,8 @@
                                     <th class="right">DEIRA2</th>
                                     <th class="right">ABUDHABI</th>
                                     <th class="right">QUSAIS</th>
-                                    <th class="right">Total</th>
+                                    <th class="right" >RAS</th> <!-- New Column Header -->
+                                    <th class="right">Total Retail</th>
                                     <th class="right">Min. Price</th>
                                     {% if session.username %}<th class="right">Cost</th>{% endif %}
                                     <th class="right">Cost Price 2</th>
@@ -418,22 +419,29 @@
                             </thead>
                             <tbody>
                                 {% for item in results %}
-                                {# index map: 0 code,1 upc,2 desc, 3..8 six branches, 9 total, 10 min, 11 cost, 12 costprice2 #}
-                                <tr class="{% if item[9] == 0 %}zero-stock{% endif %}">
+                                {# index map: 0:Code, 1:Upc, 2:Desc, 3-8:Retail, 9:RAS, 10:TotalRetail, 11:Min, 12:Cost, 13:Cost2 #}
+                                <tr class="{% if item[10] == 0 and item[9] == 0 %}zero-stock{% endif %}">
                                     <td>{{ loop.index }}</td>
                                     <td><a href="{{ url_for('item_detail', branch='AJMAN', item_code=item[0]) }}">{{ item[0] }}</a></td>
                                     <td>{{ item[1] }}</td>
                                     <td>{{ item[2] }}</td>
-                                    <td class="right">{{ item[3] }}</td>
-                                    <td class="right">{{ item[4] }}</td>
-                                    <td class="right">{{ item[5] }}</td>
-                                    <td class="right">{{ item[6] }}</td>
-                                    <td class="right">{{ item[7] }}</td>
-                                    <td class="right">{{ item[8] }}</td>
-                                    <td class="right">{{ item[9] }}</td>
+                                    <td class="right">{{ item[3]|int }}</td>
+                                    <td class="right">{{ item[4]|int }}</td>
+                                    <td class="right">{{ item[5]|int }}</td>
+                                    <td class="right">{{ item[6]|int }}</td>
+                                    <td class="right">{{ item[7]|int }}</td>
+                                    <td class="right">{{ item[8]|int }}</td>
+                                    
+                                    <!-- RAS Column (Index 9) -->
+                                    <td class="right" >{{ item[9]|int }}</td>
+
+                                    <!-- Total Retail (Index 10) -->
+                                    <td class="right">{{ item[10]|int }}</td>
+
+                                    <!-- Min Price (shifted to index 11) -->
                                     <td class="right">
-                                        <span class="min-price-view" data-value="{{ item[10] }}">
-                                            <span class="min-price-text">{{ item[10] }}</span> AED
+                                        <span class="min-price-view" data-value="{{ item[11] }}">
+                                            <span class="min-price-text">{{ item[11] }}</span> AED
                                             {% if session.username %}
                                                 <button type="button"
                                                         class="mini-btn"
@@ -444,15 +452,19 @@
                                             <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
                                         </span>
                                         <span class="min-price-edit" style="display:none;">
-                                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[10] }}" style="width:110px;">
+                                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[11] }}" style="width:110px;">
                                             <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
                                             <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
                                         </span>
                                     </td>
+                                    
+                                    <!-- Cost (shifted to index 12) -->
                                     {% if session.username %}
-                                        <td class="right">{{ item[11] }}</td>
+                                        <td class="right">{{ item[12] }}</td>
                                     {% endif %}
-                                    <td class="right">{{ item[12]|money }}</td>
+                                    
+                                    <!-- Cost 2 (shifted to index 13) -->
+                                    <td class="right">{{ item[13]|money }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -559,10 +571,10 @@
 
                                 {% if branch == 'DIP' %}
                                   <!-- DIP page shows both DIP & RAS stock -->
-                                  <td class="right">{{ item[5] }}</td>  {# DIP Stock #}
-                                  <td class="right">{{ item[6] }}</td>  {# RAS Stock #}
-                                  <td class="right">{{ item[10] }}</td> {# Total Stock #}
-                                  <td class="right">{{ item[7] }}</td>  {# Free Stock #}
+                                  <td class="right">{{ item[5] |int}}</td>  {# DIP Stock #}
+                                  <td class="right">{{ item[6] |int}}</td>  {# RAS Stock #}
+                                  <td class="right">{{ item[10] |int}}</td> {# Total Stock #}
+                                  <td class="right">{{ item[7] |int}}</td>  {# Free Stock #}
                                   {# Sold breakdown: total/HO/Others are appended server-side #}
                                   {% if session.username %}
                                   <td class="right sold-cell">
@@ -604,8 +616,8 @@
 
                                 {% else %}
                                   <!-- Other branches: single stock + free stock -->
-                                  <td class="right">{{ item[5] }}</td>  {# Stock #}
-                                  <td class="right">{{ item[6] }}</td>  {# Free Stock #}
+                                  <td class="right">{{ item[5]|int }}</td>  {# Stock #}
+                                  <td class="right">{{ item[6] |int }}</td>  {# Free Stock #}
 
                                   <!-- Min. Price (effective) with inline Edit -->
                                   <td class="right">

@@ -1104,13 +1104,12 @@ def money(v):
         return "0.00"
     
 
+# In app.py
+
 @app.route("/allstores", methods=["GET", "POST"])
 def allstores():
     """
-    One row per item with retail branch columns:
-    [ItemCode, Upc, Description, AJMAN, NAH, DEIRA, DEIRA2, ABUDHABI, QUSAIS,
-     TotalRetail, MinPrice, Cost]
-    MinPrice can have its own ALLSTORES override (separate from DIP).
+    One row per item with retail branch columns, RAS Stock, and a Grand Total.
     """
     results = None
     query = ""
@@ -1120,7 +1119,6 @@ def allstores():
         query = (request.form.get("query") or "").strip().lower()
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
 
-        # Build WHERE across ItemCode/UPC/Description/Manufacturer (all from si)
         words = [w for w in query.split() if w]
         where_sql = "1=1"
         params = []
@@ -1140,37 +1138,46 @@ def allstores():
             where_sql = " AND ".join(parts)
 
         dip_db = DB_PATHS["DIP"]
+        ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
 
-        # make sure retail_overrides exists (for ALLSTORES overrides)
         ensure_retail_override_table(dip_db)
 
         conn = sqlite3.connect(dip_db)
         cur = conn.cursor()
 
+        # Attach RAS DB
+        cur.execute(f"ATTACH DATABASE '{ras_db_path}' AS ras")
+
         sql = f"""
             SELECT
-              si."ItemCode",
-              si."Upc Code",
-              si."Description",
-              COALESCE(si."AJMAN", 0),
-              COALESCE(si."NAH", 0),
-              COALESCE(si."DEIRA", 0),
-              COALESCE(si."DEIRA2", 0),
-              COALESCE(si."ABUDHABI", 0),
-              COALESCE(si."QUSAIS", 0),
+              si."ItemCode",                                            -- 0
+              si."Upc Code",                                            -- 1
+              si."Description",                                         -- 2
+              COALESCE(si."AJMAN", 0),                                  -- 3
+              COALESCE(si."NAH", 0),                                    -- 4
+              COALESCE(si."DEIRA", 0),                                  -- 5
+              COALESCE(si."DEIRA2", 0),                                 -- 6
+              COALESCE(si."ABUDHABI", 0),                               -- 7
+              COALESCE(si."QUSAIS", 0),                                 -- 8
+              COALESCE(rsi."Stock Quantity", 0) AS RAS_Stock,           -- 9
               (
-                COALESCE(si."AJMAN", 0) + COALESCE(si."NAH", 0) +
-                COALESCE(si."DEIRA", 0) + COALESCE(si."DEIRA2", 0) +
-                COALESCE(si."ABUDHABI", 0) + COALESCE(si."QUSAIS", 0)
-              ) AS TotalRetail,
-              COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice,
-              COALESCE(si."CostPrice", 0) AS CostPrice,
+                COALESCE(si."AJMAN", 0) + 
+                COALESCE(si."NAH", 0) +
+                COALESCE(si."DEIRA", 0) + 
+                COALESCE(si."DEIRA2", 0) +
+                COALESCE(si."ABUDHABI", 0) + 
+                COALESCE(si."QUSAIS", 0) +
+                COALESCE(rsi."Stock Quantity", 0)   -- << ADDED RAS HERE
+              ) AS TotalStock,                                          -- 10
+              COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice, -- 11
+              COALESCE(si."CostPrice", 0) AS CostPrice,                 -- 12
               CASE
                 WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
                 THEN COALESCE(si."CostPrice", 0)
                 ELSE (COALESCE(si."CostPrice", 0) * 1.03)
-              END AS "CostPrice 2"
+              END AS "CostPrice 2"                                      -- 13
             FROM stock_items si
+            LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
             LEFT JOIN retail_overrides ro
               ON ro.ItemCode = si."ItemCode" AND ro.Branch = 'ALLSTORES'
             WHERE {where_sql}
@@ -1180,13 +1187,20 @@ def allstores():
                 'COALESCE(si."DEIRA", 0)',
                 'COALESCE(si."DEIRA2", 0)',
                 'COALESCE(si."ABUDHABI", 0)',
-                'COALESCE(si."QUSAIS", 0)'
+                'COALESCE(si."QUSAIS", 0)',
+                'COALESCE(rsi."Stock Quantity", 0)' 
             ]) + ") > 0" if hide_zero_stock else ""}
             ORDER BY si."ItemCode"
         """
 
         cur.execute(sql, params)
         results = cur.fetchall()
+        
+        try:
+            cur.execute("DETACH DATABASE ras")
+        except:
+            pass
+            
         conn.close()
 
     return render_template(
