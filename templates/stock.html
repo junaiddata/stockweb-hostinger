@@ -234,7 +234,7 @@
                         <label class="toggle-switch">
                             <input type="checkbox" id="hideZeroStock" name="hideZeroStock" {% if hide_zero_stock %}checked{% endif %}>
                             <span class="slider"></span>
-                            Hide zero stock items
+                            Hide low stock items
                         </label>
                         {% else %}
                         <label class="toggle-switch">
@@ -420,9 +420,9 @@
                             <tbody>
                                 {% for item in results %}
                                 {# index map: 0:Code, 1:Upc, 2:Desc, 3-8:Retail, 9:RAS, 10:TotalRetail, 11:Min, 12:Cost, 13:Cost2 #}
-                                <tr class="{% if item[10] == 0 and item[9] == 0 %}zero-stock{% endif %}">
+                                <tr class="{% if item[10] <= 10 and item[9] <= 10 %}zero-stock{% endif %}">
                                     <td>{{ loop.index }}</td>
-                                    <td><a href="{{ url_for('item_detail', branch='AJMAN', item_code=item[0]) }}">{{ item[0] }}</a></td>
+                                    <td><a href="{{ url_for('item_detail', branch='ALLSTORES', item_code=item[0]) }}">{{ item[0] }}</a></td>
                                     <td>{{ item[1] }}</td>
                                     <td>{{ item[2] }}</td>
                                     <td class="right">{{ item[3]|int }}</td>
@@ -477,7 +477,7 @@
                         <div class="results-cards-container">
                             {% for item in results %}
                             <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
-                               class="result-card {% if (item[5] or 0) == 0 and (item[6] or 0) == 0 %}zero-stock{% endif %}">
+                               class="result-card {% if (item[5] or 0) <= 10 and (item[6] or 0) <= 10 %}zero-stock{% endif %}">
                                 <div class="card-header">
                                     <span class="description">{{ item[2] }}</span>
                                     {% set any_stock = (item[5] or 0) + (item[6] or 0) %}
@@ -508,7 +508,7 @@
                         <div class="results-cards-container">
                             {% for item in results %}
                             <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
-                               class="result-card {% if item[5] == 0 %}zero-stock{% endif %}">
+                               class="result-card {% if item[5] <= 10 %}zero-stock{% endif %}">
                                 <div class="card-header">
                                     <span class="description">{{ item[2] }}</span>
                                     <span class="stock-badge {% if item[5] > 0 %}in-stock{% else %}out-of-stock{% endif %}">
@@ -560,7 +560,7 @@
 
                           <tbody>
                             {% for item in results %}
-                              <tr class="{% if item[5] == 0 %}zero-stock{% endif %}">
+                              <tr class="{% if item[5] <= 10 %}zero-stock{% endif %}">
                                 <td>{{ loop.index }}</td>
 
                                 <!-- Common columns -->

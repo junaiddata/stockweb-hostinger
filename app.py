@@ -455,7 +455,8 @@ def stock_page(branch):
 
             # Extra filters
             if branch != "ALABAMA" and hide_zero_stock:
-                sql_query += ' AND si."Stock Quantity" > 0'
+                # Changed 0 to 10, and added CAST to fix number comparison
+                sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 10'
             if branch == "ALABAMA" and hide_zero_cost:
                 sql_query += ' AND CAST("CostPrice" AS REAL) > 0'
 
@@ -617,34 +618,78 @@ def item_detail(branch, item_code):
     branch = (branch or "").upper()
     item_code = (item_code or "").strip()
 
-    # --- Retail branches read from DIP DB and use retail_overrides ---
-    if branch in RETAIL_BRANCHES:
-        db_path = DB_PATHS["DIP"]
-        try:
-            ensure_retail_override_table(db_path)  # safe no-op if already created
-        except Exception:
-            pass
+    # ==========================================
+    # 1. SPECIFIC LOGIC FOR "ALLSTORES" (Must be first!)
+    # ==========================================
+    if branch == "ALLSTORES":
+        dip_db = DB_PATHS["DIP"]
+        ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+        
+        # Ensure tables exist
+        try: ensure_retail_override_table(dip_db)
+        except: pass
+        try: ensure_override_table(dip_db) # For generic admin overrides
+        except: pass
 
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(dip_db)
         cur = conn.cursor()
-        # NOTE: column name must be interpolated; branch is validated via RETAIL_BRANCHES.
-        cur.execute(f"""
+        
+        # Attach RAS to get that stock
+        cur.execute(f"ATTACH DATABASE '{ras_db_path}' AS ras")
+
+        # Query with robust Joins and Fallback Pricing
+        cur.execute("""
             SELECT
-                si."ItemCode",
-                si."Upc Code",
-                si."Description",
-                si."Manufacturer Name",
-                si."Warehouse Code",
-                COALESCE(si."{branch}", 0)               AS retail_stock,
-                0                                        AS free_stock,
-                COALESCE(ro.SellingPriceOverride, si."Selling Price") AS eff_min_price,
-                si."CostPrice"
+                si."ItemCode",              -- 0
+                si."Upc Code",              -- 1
+                si."Description",           -- 2
+                si."Manufacturer Name",     -- 3
+                si."Warehouse Code",        -- 4
+                
+                -- Individual Branch Stocks
+                COALESCE(si."AJMAN", 0),    -- 5
+                COALESCE(si."NAH", 0),      -- 6
+                COALESCE(si."DEIRA", 0),    -- 7
+                COALESCE(si."DEIRA2", 0),   -- 8
+                COALESCE(si."ABUDHABI", 0), -- 9
+                COALESCE(si."QUSAIS", 0),   -- 10
+                COALESCE(rsi."Stock Quantity", 0) AS RAS_Stock, -- 11
+                
+                -- Calculated Total
+                (
+                    COALESCE(si."AJMAN", 0) + COALESCE(si."NAH", 0) +
+                    COALESCE(si."DEIRA", 0) + COALESCE(si."DEIRA2", 0) +
+                    COALESCE(si."ABUDHABI", 0) + COALESCE(si."QUSAIS", 0) +
+                    COALESCE(rsi."Stock Quantity", 0)
+                ) AS TotalStock,            -- 12
+                
+                -- PRICE LOGIC: 
+                -- 1. Check for specific 'ALLSTORES' override
+                -- 2. Check for general 'Admin/DIP' override
+                -- 3. Fallback to Excel Selling Price
+                COALESCE(ro.SellingPriceOverride, po.SellingPriceOverride, si."Selling Price", 0) AS MinPrice, -- 13
+                
+                si."CostPrice"              -- 14
             FROM stock_items si
-            LEFT JOIN retail_overrides ro
-              ON ro.ItemCode = si."ItemCode" AND ro.Branch = ?
-            WHERE si."ItemCode" = ?
-        """, (branch, item_code))
+            LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(si."ItemCode")
+            
+            -- Join specific Retail Override (AllStores)
+            LEFT JOIN retail_overrides ro 
+                ON TRIM(ro.ItemCode) = TRIM(si."ItemCode") 
+                AND ro.Branch = 'ALLSTORES'
+
+            -- Join generic Admin Override (DIP)
+            LEFT JOIN price_overrides po
+                ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+            
+            WHERE TRIM(si."ItemCode") = TRIM(?)
+        """, (item_code,))
+        
         row = cur.fetchone()
+        
+        # Detach and clean up
+        try: cur.execute("DETACH DATABASE ras")
+        except: pass
         conn.close()
 
         if not row:
@@ -656,22 +701,75 @@ def item_detail(branch, item_code):
             "Description": row[2],
             "ManufacturerName": row[3],
             "WarehouseCode": row[4],
-            "StockQuantity": row[5],
-            "FreeStock": row[6],
-            "MinSellingPrice": row[7],
+            # Breakdown
+            "AJMAN": row[5],
+            "NAH": row[6],
+            "DEIRA": row[7],
+            "DEIRA2": row[8],
+            "ABUDHABI": row[9],
+            "QUSAIS": row[10],
+            "RAS": row[11],
+            # Totals & Price
+            "TotalStock": row[12],
+            "MinSellingPrice": row[13], 
+            "CostPrice": row[14] if "username" in session else None,
+        }
+        return render_template("item_detail.html", item=item_data, branch=branch)
+
+    # ==========================================
+    # 2. GENERIC RETAIL BRANCHES (AJMAN, NAH, etc.)
+    # ==========================================
+    if branch in RETAIL_BRANCHES:
+        db_path = DB_PATHS["DIP"]
+        try: ensure_retail_override_table(db_path)
+        except: pass
+
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        
+        cur.execute(f"""
+            SELECT
+                si."ItemCode",
+                si."Upc Code",
+                si."Description",
+                si."Manufacturer Name",
+                si."Warehouse Code",
+                COALESCE(si."{branch}", 0) AS retail_stock,
+                0 AS free_stock,
+                COALESCE(ro.SellingPriceOverride, si."Selling Price") AS eff_min_price,
+                si."CostPrice"
+            FROM stock_items si
+            LEFT JOIN retail_overrides ro
+              ON TRIM(ro.ItemCode) = TRIM(si."ItemCode") AND ro.Branch = ?
+            WHERE TRIM(si."ItemCode") = TRIM(?)
+        """, (branch, item_code))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row: return render_template("item_detail.html", item=None, branch=branch), 404
+
+        item_data = {
+            "ItemCode": row[0], "UpcCode": row[1], "Description": row[2],
+            "ManufacturerName": row[3], "WarehouseCode": row[4],
+            "StockQuantity": row[5], "FreeStock": row[6],
+            "MinSellingPrice": row[7], 
             "CostPrice": row[8] if "username" in session else None,
         }
         return render_template("item_detail.html", item=item_data, branch=branch)
 
-    # --- Alabama (no stock/min price) ---
+    # ==========================================
+    # 3. ALABAMA
+    # ==========================================
     if branch == "ALABAMA":
         db_path = DB_PATHS[branch]
-        ensure_override_table(db_path)  # harmless for ALABAMA
+        ensure_override_table(db_path)
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute("""
-            SELECT "ItemCode","Upc Code","Description","Manufacturer Name","CostPrice"
-            FROM stock_items
+            SELECT "ItemCode","Upc Code","Description","Manufacturer Name",
+            COALESCE(po.CostPriceOverride, "CostPrice") 
+            FROM stock_items 
+            LEFT JOIN price_overrides po ON po.ItemCode = stock_items.ItemCode
             WHERE "ItemCode" = ?
         """, (item_code,))
         item = cur.fetchone()
@@ -679,59 +777,48 @@ def item_detail(branch, item_code):
 
         if item:
             item_data = {
-                "ItemCode": item[0],
-                "UpcCode": item[1],
-                "Description": item[2],
-                "ManufacturerName": item[3],
-                "WarehouseCode": None,
-                "StockQuantity": None,
-                "FreeStock": None,
-                "MinSellingPrice": None,
+                "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
+                "ManufacturerName": item[3], "WarehouseCode": None,
+                "StockQuantity": None, "FreeStock": None, "MinSellingPrice": None,
                 "CostPrice": item[4] if "username" in session else None,
             }
             return render_template("item_detail.html", item=item_data, branch=branch)
         return render_template("item_detail.html", item=None, branch=branch), 404
 
-    # --- DIP / RASALKHORE (existing behavior with price_overrides) ---
-    db_path = DB_PATHS[branch]
+    # ==========================================
+    # 4. HEAOFFICE / RASALKHORE (Standard)
+    # ==========================================
+    db_path = DB_PATHS.get(branch)
+    if not db_path:
+        return render_template("item_detail.html", item=None, branch=branch), 404
+
     ensure_override_table(db_path)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute("""
         SELECT
-            si."ItemCode",
-            si."Upc Code",
-            si."Description",
-            si."Manufacturer Name",
-            si."Warehouse Code",
-            si."Stock Quantity",
-            si."Free Stock",
+            si."ItemCode", si."Upc Code", si."Description", si."Manufacturer Name", si."Warehouse Code",
+            si."Stock Quantity", si."Free Stock",
             COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
             si."CostPrice"
         FROM stock_items si
-        LEFT JOIN price_overrides po ON po.ItemCode = si."ItemCode"
-        WHERE si."ItemCode" = ?
+        LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+        WHERE TRIM(si."ItemCode") = TRIM(?)
     """, (item_code,))
     item = cur.fetchone()
     conn.close()
 
     if item:
         item_data = {
-            "ItemCode": item[0],
-            "UpcCode": item[1],
-            "Description": item[2],
-            "ManufacturerName": item[3],
-            "WarehouseCode": item[4],
-            "StockQuantity": item[5],
-            "FreeStock": item[6],
-            "MinSellingPrice": item[7],
+            "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
+            "ManufacturerName": item[3], "WarehouseCode": item[4],
+            "StockQuantity": item[5], "FreeStock": item[6],
+            "MinSellingPrice": item[7], 
             "CostPrice": item[8] if "username" in session else None,
         }
         return render_template("item_detail.html", item=item_data, branch=branch)
 
     return render_template("item_detail.html", item=None, branch=branch), 404
-
-
 
 # (Optional) Route to update data manually
 @app.route("/update_data/<branch>", methods=["GET"])
@@ -1108,9 +1195,6 @@ def money(v):
 
 @app.route("/allstores", methods=["GET", "POST"])
 def allstores():
-    """
-    One row per item with retail branch columns, RAS Stock, and a Grand Total.
-    """
     results = None
     query = ""
     hide_zero_stock = False
@@ -1140,26 +1224,27 @@ def allstores():
         dip_db = DB_PATHS["DIP"]
         ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
 
+        # 1. Ensure table exists before querying
         ensure_retail_override_table(dip_db)
 
         conn = sqlite3.connect(dip_db)
         cur = conn.cursor()
 
-        # Attach RAS DB
         cur.execute(f"ATTACH DATABASE '{ras_db_path}' AS ras")
 
+        # 2. UPDATED SQL: Added TRIM() in the LEFT JOIN condition
         sql = f"""
             SELECT
-              si."ItemCode",                                            -- 0
-              si."Upc Code",                                            -- 1
-              si."Description",                                         -- 2
-              COALESCE(si."AJMAN", 0),                                  -- 3
-              COALESCE(si."NAH", 0),                                    -- 4
-              COALESCE(si."DEIRA", 0),                                  -- 5
-              COALESCE(si."DEIRA2", 0),                                 -- 6
-              COALESCE(si."ABUDHABI", 0),                               -- 7
-              COALESCE(si."QUSAIS", 0),                                 -- 8
-              COALESCE(rsi."Stock Quantity", 0) AS RAS_Stock,           -- 9
+              si."ItemCode",
+              si."Upc Code",
+              si."Description",
+              COALESCE(si."AJMAN", 0),
+              COALESCE(si."NAH", 0),
+              COALESCE(si."DEIRA", 0),
+              COALESCE(si."DEIRA2", 0),
+              COALESCE(si."ABUDHABI", 0),
+              COALESCE(si."QUSAIS", 0),
+              COALESCE(rsi."Stock Quantity", 0) AS RAS_Stock,
               (
                 COALESCE(si."AJMAN", 0) + 
                 COALESCE(si."NAH", 0) +
@@ -1167,19 +1252,26 @@ def allstores():
                 COALESCE(si."DEIRA2", 0) +
                 COALESCE(si."ABUDHABI", 0) + 
                 COALESCE(si."QUSAIS", 0) +
-                COALESCE(rsi."Stock Quantity", 0)   -- << ADDED RAS HERE
-              ) AS TotalStock,                                          -- 10
-              COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice, -- 11
-              COALESCE(si."CostPrice", 0) AS CostPrice,                 -- 12
+                COALESCE(rsi."Stock Quantity", 0)
+              ) AS TotalStock,
+              
+              -- Priority: 1. AllStores Override, 2. Original Selling Price, 3. Default 0
+              COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) AS MinPrice,
+              
+              COALESCE(si."CostPrice", 0) AS CostPrice,
               CASE
                 WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
                 THEN COALESCE(si."CostPrice", 0)
                 ELSE (COALESCE(si."CostPrice", 0) * 1.03)
-              END AS "CostPrice 2"                                      -- 13
+              END AS "CostPrice 2"
             FROM stock_items si
             LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
+            
+            -- FIX: Join using TRIM to avoid whitespace mismatch
             LEFT JOIN retail_overrides ro
-              ON ro.ItemCode = si."ItemCode" AND ro.Branch = 'ALLSTORES'
+              ON TRIM(ro.ItemCode) = TRIM(si."ItemCode") 
+              AND ro.Branch = 'ALLSTORES'
+            
             WHERE {where_sql}
             {" AND (" + " + ".join([
                 'COALESCE(si."AJMAN", 0)',

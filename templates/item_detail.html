@@ -24,12 +24,7 @@
             --border-radius: 12px;
         }
 
-        /* General Reset & Body Styles */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'Poppins', sans-serif;
@@ -42,15 +37,8 @@
             min-height: 100vh;
         }
 
-        .app-container {
-            width: 100%;
-            max-width: 800px;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
+        .app-container { width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 1.5rem; }
 
-        /* Header */
         header {
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             color: var(--white-color);
@@ -60,14 +48,9 @@
             font-weight: 600;
             letter-spacing: 1px;
             border-radius: var(--border-radius);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
             box-shadow: 0 4px 15px var(--shadow-medium);
         }
 
-        /* Details Card */
         .details-card {
             background: var(--card-background);
             padding: 2rem;
@@ -76,25 +59,16 @@
             text-align: left;
         }
 
-        .item-header h2 {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 0.25rem;
-        }
-
+        .item-header h2 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.25rem; }
         .item-header .sub-heading {
-            color: var(--text-light);
-            font-size: 0.9rem;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 1.5rem;
-            margin-bottom: 1.5rem;
+            color: var(--text-light); font-size: 0.9rem; border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.5rem; margin-bottom: 1.5rem;
         }
 
-        /* Key Stats Section */
         .key-stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
             margin-bottom: 2rem;
         }
 
@@ -105,78 +79,49 @@
             border-left: 4px solid var(--primary-color);
         }
 
-        .stat .label {
-            font-size: 0.9rem;
-            color: var(--text-light);
-            display: block;
-            margin-bottom: 0.25rem;
-        }
-
-        .stat .value {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: var(--primary-color);
-        }
-
-        /* Change border and text color for stock */
-        .stat.stock-stat .value {
-            color: var(--success-color);
-        }
-        .stat.stock-stat {
-            border-left-color: var(--success-color);
-        }
-
-        /* Item Info Section */
-        .item-info dl {
-            display: grid;
-            grid-template-columns: max-content 1fr;
-            gap: 0.75rem 1.5rem;
-        }
-
-        .item-info dt {
-            font-weight: 600;
-            color: var(--text-color);
-        }
-
-        .item-info dd {
-            color: var(--text-light);
-        }
-
-        /* Back Link */
-        .back-link {
-            display: inline-block;
-            margin-top: 1rem;
-            padding: 10px 25px;
-            background: transparent;
-            color: var(--primary-color);
-            text-decoration: none;
-            border-radius: 25px;
-            border: 2px solid var(--primary-color);
-            font-weight: 600;
-            transition: all 0.3s ease;
-            text-align: center;
-        }
-
-        .back-link:hover {
-            background: var(--primary-color);
-            color: var(--white-color);
-        }
-
-        /* Error Message */
-        .error-message {
-            text-align: center;
-            padding: 2rem;
-            font-size: 1.2rem;
-            color: var(--error-color);
-            font-weight: 500;
-        }
+        .stat .label { font-size: 0.85rem; color: var(--text-light); display: block; margin-bottom: 0.25rem; }
+        .stat .value { font-size: 1.5rem; font-weight: 600; color: var(--primary-color); }
         
+        .stat.stock-stat .value { color: var(--success-color); }
+        .stat.stock-stat { border-left-color: var(--success-color); }
+        
+        /* Styles for Breakdown Grid (AllStores) */
+        .breakdown-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        @media (max-width: 600px) { .breakdown-grid { grid-template-columns: repeat(2, 1fr); } }
+
+        .breakdown-item {
+            background: #fff; border: 1px solid var(--border-color);
+            padding: 10px; border-radius: 8px; text-align: center;
+        }
+        .breakdown-item.highlight { background: #e3f2fd; border-color: #90caf9; } /* For RAS */
+        .breakdown-item h4 { font-size: 0.8rem; color: var(--text-light); text-transform: uppercase; }
+        .breakdown-item p { font-size: 1.2rem; font-weight: 600; color: #333; }
+        .breakdown-item.has-stock p { color: var(--success-color); }
+
+        .item-info dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.75rem 1.5rem; }
+        .item-info dt { font-weight: 600; color: var(--text-color); }
+        .item-info dd { color: var(--text-light); }
+
+        .back-link {
+            display: inline-block; margin-top: 1rem; padding: 10px 25px;
+            background: transparent; color: var(--primary-color); text-decoration: none;
+            border-radius: 25px; border: 2px solid var(--primary-color); font-weight: 600;
+            transition: all 0.3s ease; text-align: center; width: 100%;
+        }
+        .back-link:hover { background: var(--primary-color); color: var(--white-color); }
+
+        .error-message { text-align: center; padding: 2rem; font-size: 1.2rem; color: var(--error-color); }
     </style>
 </head>
 <body>
 
     <div class="app-container">
-        <header>📦 Stock Details</header>
+        <header>📦 Stock Details - {{ branch|title }}</header>
 
         <main>
             <div class="details-card">
@@ -189,33 +134,82 @@
                         </p>
                     </div>
 
-                    <div class="key-stats">
-                        <div class="stat stock-stat">
-                            <span class="label">Stock Quantity</span>
-                            <span class="value">{{ item.StockQuantity }}</span>
+                    {# ============ ALL STORES LAYOUT ============ #}
+                    {% if branch == 'ALLSTORES' %}
+                        
+                        <div class="key-stats">
+                            <div class="stat stock-stat">
+                                <span class="label">Total Stock</span>
+                                <span class="value">{{ item.TotalStock|int }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="label">Min. Price</span>
+                                <span class="value">{{ item.MinSellingPrice }}</span>
+                            </div>
+                            {% if session.username and item.CostPrice %}
+                            <div class="stat">
+                                <span class="label">Cost Price</span>
+                                <span class="value">{{ item.CostPrice }}</span>
+                            </div>
+                            {% endif %}
                         </div>
-                        <div class="stat stock-stat">
-                            <span class="label">Free Stock</span>
-                            <span class="value">{{ item.FreeStock }}</span>
+
+                        <h3 style="font-size:1.1rem; margin-bottom:10px; color:#555;">Branch Breakdown:</h3>
+                        <div class="breakdown-grid">
+                            {% for b_name in ['AJMAN', 'NAH', 'DEIRA', 'DEIRA2', 'ABUDHABI', 'QUSAIS'] %}
+                                <div class="breakdown-item {% if item[b_name]|int > 0 %}has-stock{% endif %}">
+                                    <h4>{{ b_name }}</h4>
+                                    <p>{{ item[b_name]|int }}</p>
+                                </div>
+                            {% endfor %}
+                            
+                            <!-- RAS Highlighted -->
+                            <div class="breakdown-item highlight {% if item.RAS|int > 0 %}has-stock{% endif %}">
+                                <h4>RAS (Warehouse)</h4>
+                                <p>{{ item.RAS|int }}</p>
+                            </div>
                         </div>
-                        <div class="stat">
-                            <span class="label">Min. Price (AED)</span>
-                            <span class="value">{{ item.MinSellingPrice }}</span>
+
+                    {# ============ STANDARD BRANCH LAYOUT ============ #}
+                    {% else %}
+                        
+                        <div class="key-stats">
+                            {% if branch != 'ALABAMA' %}
+                                <div class="stat stock-stat">
+                                    <span class="label">Stock Quantity</span>
+                                    <span class="value">{{ item.StockQuantity|int }}</span>
+                                </div>
+                                <div class="stat stock-stat">
+                                    <span class="label">Free Stock</span>
+                                    <span class="value">{{ item.FreeStock|int }}</span>
+                                </div>
+                            {% endif %}
+                            
+                            {% if item.MinSellingPrice is not none %}
+                            <div class="stat">
+                                <span class="label">Min. Price (AED)</span>
+                                <span class="value">{{ item.MinSellingPrice }}</span>
+                            </div>
+                            {% endif %}
+
+                            {% if session.username and item.CostPrice is not none %}
+                            <div class="stat">
+                                <span class="label">Cost Price (AED)</span>
+                                <span class="value">{{ item.CostPrice }}</span>
+                            </div>
+                            {% endif %}
                         </div>
-                        {% if session.username %}
-                        <div class="stat">
-                            <span class="label">Cost Price (AED)</span>
-                            <span class="value"> -- </span>
-                        </div>
-                        {% endif %}
-                    </div>
+
+                    {% endif %}
 
                     <div class="item-info">
                         <dl>
                             <dt>Manufacturer:</dt>
                             <dd>{{ item.ManufacturerName }}</dd>
+                            {% if item.WarehouseCode %}
                             <dt>Warehouse:</dt>
                             <dd>{{ item.WarehouseCode }}</dd>
+                            {% endif %}
                         </dl>
                     </div>
                 {% else %}
