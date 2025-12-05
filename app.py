@@ -456,7 +456,7 @@ def stock_page(branch):
             # Extra filters
             if branch != "ALABAMA" and hide_zero_stock:
                 # Changed 0 to 10, and added CAST to fix number comparison
-                sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 10'
+                sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
             if branch == "ALABAMA" and hide_zero_cost:
                 sql_query += ' AND CAST("CostPrice" AS REAL) > 0'
 
