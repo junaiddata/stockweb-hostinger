@@ -5,9 +5,76 @@ import os
 from flask import Flask, request, render_template, redirect, url_for, session, flash
 from werkzeug.security import check_password_hash, generate_password_hash
 import requests
+from datetime import datetime
+import uuid
 
+
+DEVICE_DB = "devices.db"
+
+def init_device_db():
+    conn = sqlite3.connect(DEVICE_DB)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS trusted_devices (
+            token TEXT PRIMARY KEY,
+            device_name TEXT,
+            ip_address TEXT,
+            status TEXT DEFAULT 'pending', -- 'pending' or 'approved'
+            created_at TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+# Initialize it on startup
+init_device_db()
 
 app = Flask(__name__)
+
+
+@app.before_request
+def device_restriction_middleware():
+    # 1. Allow Static files (CSS/JS/Images)
+    if request.path.startswith('/static'):
+        return
+
+    # 2. Allow Login & Device Registration pages explicitly
+    allowed_endpoints = [
+        'login',            # Admin login
+        'register_device',  # The form
+        'device_pending',   # The waiting screen
+        'approve_devices',  # The admin panel to approve
+        'logout',           # Logout
+        'logo_proxy'        # Logo image
+    ]
+    
+    if request.endpoint in allowed_endpoints:
+        return
+
+    # 3. Check for Cookie
+    token = request.cookies.get('device_token')
+    
+    if not token:
+        return redirect(url_for('register_device'))
+
+    # 4. Check Database
+    conn = sqlite3.connect(DEVICE_DB)
+    c = conn.cursor()
+    c.execute("SELECT status FROM trusted_devices WHERE token = ?", (token,))
+    row = c.fetchone()
+    conn.close()
+
+    # 5. Logic:
+    # If no record found -> Re-register
+    if not row:
+        return redirect(url_for('register_device'))
+    
+    # If record exists but is Pending -> Wait
+    if row[0] != 'approved':
+        return redirect(url_for('device_pending'))
+
+    # If Approved -> Access Granted (Do nothing, let Flask continue)
 
 UPLOAD_FOLDER = "uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -1314,6 +1381,104 @@ def logo_proxy():
         return Response(r.content, mimetype='image/png')
     except Exception as e:
         return "", 404
+    
+
+
+
+
+
+
+@app.route("/register-device", methods=["GET", "POST"])
+def register_device():
+    # If already approved, go home
+    token = request.cookies.get('device_token')
+    if token:
+        conn = sqlite3.connect(DEVICE_DB)
+        c = conn.cursor()
+        c.execute("SELECT status FROM trusted_devices WHERE token = ?", (token,))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0] == 'approved':
+            return redirect(url_for('home'))
+        if row and row[0] == 'pending':
+            return redirect(url_for('device_pending'))
+
+    if request.method == "POST":
+        device_name = request.form.get("device_name", "Unknown Device")
+        new_token = str(uuid.uuid4())
+        ip_address = request.remote_addr
+        
+        # Save to DB
+        conn = sqlite3.connect(DEVICE_DB)
+        c = conn.cursor()
+        c.execute("INSERT INTO trusted_devices (token, device_name, ip_address, created_at) VALUES (?, ?, ?, ?)",
+                  (new_token, device_name, ip_address, datetime.now()))
+        conn.commit()
+        conn.close()
+
+        # Set Cookie for 10 years
+        resp = redirect(url_for('device_pending'))
+        resp.set_cookie('device_token', new_token, max_age=60*60*24*365*10, httponly=True)
+        return resp
+
+    user_agent = request.headers.get('User-Agent')
+    return render_template("register_device.html", user_agent=user_agent)
+
+
+@app.route("/device-pending")
+def device_pending():
+    # Logic to auto-redirect if approved (like refresh check)
+    token = request.cookies.get('device_token')
+    if token:
+        conn = sqlite3.connect(DEVICE_DB)
+        c = conn.cursor()
+        c.execute("SELECT status FROM trusted_devices WHERE token = ?", (token,))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0] == 'approved':
+            return redirect(url_for('home'))
+
+    return render_template("device_pending.html")
+
+
+# --- ADMIN PANEL TO MANAGE DEVICES ---
+@app.route("/admin/devices", methods=["GET", "POST"])
+def approve_devices():
+    # Only allow logged-in Admins
+    if "username" not in session:
+        flash("Please login to manage devices", "danger")
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect(DEVICE_DB)
+    c = conn.cursor()
+
+    # Handle Approval / Deletion
+    if request.method == "POST":
+        action = request.form.get("action")
+        token_to_act = request.form.get("token")
+        
+        if action == "approve":
+            c.execute("UPDATE trusted_devices SET status='approved' WHERE token=?", (token_to_act,))
+            flash("Device approved!", "success")
+        elif action == "delete":
+            c.execute("DELETE FROM trusted_devices WHERE token=?", (token_to_act,))
+            flash("Device removed.", "warning")
+        conn.commit()
+
+    # Get List
+    c.execute("SELECT * FROM trusted_devices ORDER BY created_at DESC")
+    devices = c.fetchall()
+    conn.close()
+
+    return render_template("admin_devices.html", devices=devices)
+
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000 , debug=True)

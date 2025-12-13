@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Device</title>
+    <style>
+        body { font-family: sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 100%; }
+        h2 { color: #333; }
+        input { width: 100%; padding: 10px; margin: 15px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #218838; }
+        .info { background: #eee; padding: 10px; font-size: 12px; color: #555; border-radius: 5px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>🛡️ Security Check</h2>
+        <p>This device is not registered. Please enter a name to request access.</p>
+        <div class="info">{{ user_agent }}</div>
+        <form method="POST">
+            <input type="text" name="device_name" placeholder="e.g. Counter PC, Ali's Mobile" required autofocus>
+            <button type="submit">Request Access</button>
+        </form>
+    </div>
+</body>
+</html>
