@@ -46,7 +46,8 @@ def device_restriction_middleware():
         'device_pending',   # The waiting screen
         'approve_devices',  # The admin panel to approve
         'logout',           # Logout
-        'logo_proxy'        # Logo image
+        'logo_proxy',
+        'stock_api'         # Logo image
     ]
     
     if request.endpoint in allowed_endpoints:
