@@ -4,20 +4,146 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Register Device</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 100%; }
-        h2 { color: #333; }
-        input { width: 100%; padding: 10px; margin: 15px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-        button:hover { background: #218838; }
-        .info { background: #eee; padding: 10px; font-size: 12px; color: #555; border-radius: 5px; margin-bottom: 20px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        h2 {
+            color: white;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+        
+        .info {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            margin-bottom: 24px;
+            word-break: break-all;
+        }
+        
+        input {
+            width: 100%;
+            padding: 14px 18px;
+            margin-bottom: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: white;
+            font-family: 'Poppins', sans-serif;
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
+        
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #4caf50;
+            background: rgba(255, 255, 255, 0.08);
+        }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #4caf50, #2e7d32);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 20px rgba(46, 125, 50, 0.3);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(46, 125, 50, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .decoration {
+            position: fixed;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        .decoration-1 {
+            top: -150px;
+            right: -150px;
+            background: radial-gradient(circle, rgba(76, 175, 80, 0.1) 0%, transparent 70%);
+        }
+        
+        .decoration-2 {
+            bottom: -150px;
+            left: -150px;
+            background: radial-gradient(circle, rgba(25, 118, 210, 0.08) 0%, transparent 70%);
+        }
     </style>
 </head>
 <body>
+    <div class="decoration decoration-1"></div>
+    <div class="decoration decoration-2"></div>
+    
     <div class="card">
-        <h2>🛡️ Security Check</h2>
-        <p>This device is not registered. Please enter a name to request access.</p>
+        <div class="icon">🛡️</div>
+        <h2>Device Registration</h2>
+        <p>This device is not registered. Please enter a name to request access to the Stock Management System.</p>
         <div class="info">{{ user_agent }}</div>
         <form method="POST">
             <input type="text" name="device_name" placeholder="e.g. Counter PC, Ali's Mobile" required autofocus>

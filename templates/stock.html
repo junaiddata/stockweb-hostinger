@@ -13,6 +13,7 @@
         :root {
             --primary-color: #0d47a1; /* Deep Blue */
             --secondary-color: #1976d2; /* Lighter Blue */
+            --primary-dark: #0a1929;
             --background-color: #f4f7f9;
             --card-background: #ffffff;
             --text-color: #333;
@@ -33,30 +34,230 @@
             background-color: var(--background-color);
             color: var(--text-color);
             line-height: 1.6;
-            display: flex;
-            justify-content: center;
-            padding: 1rem;
+            min-height: 100vh;
         }
 
-        .app-container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 1.5rem; }
-
-        header {
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            color: var(--white-color);
-            padding: 1rem 1.5rem;
-            text-align: center;
-            font-size: 1.5rem;
-            font-weight: 600;
-            letter-spacing: 1px;
-            border-radius: var(--border-radius);
+        /* Top Navigation Bar */
+        .top-nav {
+            background: linear-gradient(135deg, var(--primary-dark) 0%, #001e3c 100%);
+            padding: 12px 20px;
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 1rem;
-            box-shadow: 0 4px 15px var(--shadow-medium);
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
         }
 
-        header img { width: 80px; height: auto; }
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-logo {
+            height: 40px;
+            width: auto;
+        }
+
+        .nav-divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .nav-title {
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-title .branch-badge {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .nav-btn-ghost {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .nav-btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .nav-btn-primary {
+            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+            color: white;
+            box-shadow: 0 2px 8px rgba(25, 118, 210, 0.3);
+        }
+
+        .nav-btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(25, 118, 210, 0.4);
+        }
+
+        .nav-btn-danger {
+            background: linear-gradient(135deg, #ef5350, #c62828);
+            color: white;
+        }
+
+        .nav-btn-danger:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(198, 40, 40, 0.3);
+        }
+
+        /* Main Content Area */
+        .main-wrapper {
+            display: flex;
+            justify-content: center;
+            padding: 1.5rem 1rem;
+        }
+
+        .app-container { 
+            width: 100%; 
+            max-width: 950px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 1.5rem; 
+        }
+
+        /* Page Header */
+        .page-header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: var(--white-color);
+            padding: 1.25rem 1.5rem;
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 15px var(--shadow-medium);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .page-header-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .page-header-icon {
+            font-size: 28px;
+        }
+
+        .page-header h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .page-header-subtitle {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #69f0ae;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.9); }
+        }
+
+        /* Mobile Navigation */
+        @media (max-width: 768px) {
+            .top-nav {
+                padding: 10px 14px;
+            }
+            
+            .nav-logo {
+                height: 32px;
+            }
+            
+            .nav-divider {
+                display: none;
+            }
+            
+            .nav-title {
+                display: none;
+            }
+            
+            .nav-btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            
+            .nav-btn span.btn-text {
+                display: none;
+            }
+            
+            .page-header {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+        }
+
+            .page-header h1 {
+                font-size: 1.2rem;
+            }
+            
+            .live-indicator {
+                display: none;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main-wrapper {
+                padding: 1rem 0.75rem;
+            }
+        }
+
+        /* Legacy header styles removed - now using top-nav */
 
         .search-section {
             background: var(--card-background);
@@ -214,13 +415,52 @@
     </style>
 </head>
 <body>
-    <div class="app-container">
-        <a href="/" style="text-decoration: none;">
-            <header>
-                <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Company Logo">
-                <span>Stock Search - {{ branch|title }}</span>
-            </header>
-        </a>
+    <!-- Top Navigation Bar -->
+    <nav class="top-nav">
+        <div class="nav-left">
+            <a href="{{ url_for('home') }}">
+                <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Logo" class="nav-logo">
+            </a>
+            <div class="nav-divider"></div>
+            <div class="nav-title">
+                Stock Search
+                <span class="branch-badge">{{ branch|title }}</span>
+            </div>
+        </div>
+        <div class="nav-right">
+            <a href="{{ url_for('home') }}" class="nav-btn nav-btn-ghost">
+                <span>←</span>
+                <span class="btn-text">Home</span>
+            </a>
+            {% if session.username %}
+                <a href="{{ url_for('logout') }}" class="nav-btn nav-btn-danger">
+                    <span class="btn-text">Logout</span>
+                </a>
+            {% else %}
+                <a href="{{ url_for('login') }}" class="nav-btn nav-btn-primary">
+                    <span class="btn-text">Login</span>
+                </a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-wrapper">
+        <div class="app-container">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="page-header-content">
+                    <span class="page-header-icon">📦</span>
+                    <div>
+                        <h1>{{ branch|title }} Stock</h1>
+                        <div class="page-header-subtitle">Search inventory by code, UPC, or description</div>
+                    </div>
+                </div>
+                <div class="live-indicator">
+                    <span class="live-dot"></span>
+                    Live Updates
+                </div>
+            </div>
 
         <main>
             <section class="search-section">
@@ -653,9 +893,10 @@
             {% endif %}
         </main>
         
-        <footer>
+            <footer style="text-align: center; font-size: 0.8rem; color: var(--text-light); margin-top: 1rem; padding: 1rem;">
             <p>*For locally purchased items, prices may vary. Please confirm with the Purchase Executive before finalizing the order.</p>
         </footer>
+        </div>
     </div>
 
     <script>
@@ -949,6 +1190,292 @@
         // Save File
         doc.save(`Stock_Report_${branchName}_${Date.now()}.pdf`);
     }
+
+    // ============================================================================
+    // Real-Time Updates via Server-Sent Events (SSE)
+    // ============================================================================
+    
+    (function() {
+        const branch = "{{ branch }}";
+        let eventSource = null;
+        let reconnectTimeout = null;
+        let isPageVisible = true;
+        
+        // Check if page is visible (user is viewing it)
+        document.addEventListener('visibilitychange', function() {
+            isPageVisible = !document.hidden;
+            if (isPageVisible && !eventSource) {
+                connectSSE();
+            } else if (!isPageVisible && eventSource) {
+                disconnectSSE();
+            }
+        });
+        
+        function connectSSE() {
+            // Don't connect if already connected or page not visible
+            if (eventSource || !isPageVisible) return;
+            
+            try {
+                const url = `/api/stock-stream/${branch}`;
+                eventSource = new EventSource(url);
+                
+                eventSource.onopen = function() {
+                    console.log('[SSE] Connected to real-time updates');
+                    // Show subtle connection status (optional - just log for now)
+                    showConnectionStatus('connected');
+                };
+                
+                eventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        if (data.type === 'connected') {
+                            console.log('[SSE] Connection confirmed for branch:', data.branch);
+                        } else if (data.type === 'sync_complete') {
+                            console.log('[SSE] Sync completed:', data);
+                            handleSyncUpdate(data);
+                        }
+                    } catch (e) {
+                        console.error('[SSE] Error parsing message:', e);
+                    }
+                };
+                
+                eventSource.onerror = function(error) {
+                    console.error('[SSE] Connection error:', error);
+                    eventSource.close();
+                    eventSource = null;
+                    
+                    // Reconnect after 5 seconds
+                    reconnectTimeout = setTimeout(function() {
+                        if (isPageVisible) {
+                            console.log('[SSE] Attempting to reconnect...');
+                            connectSSE();
+                        }
+                    }, 5000);
+                };
+            } catch (e) {
+                console.error('[SSE] Failed to create EventSource:', e);
+            }
+        }
+        
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+        }
+        
+        function showConnectionStatus(status) {
+            // Create or update a small status indicator
+            let indicator = document.getElementById('sse-status');
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'sse-status';
+                indicator.style.cssText = `
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    padding: 8px 14px;
+                    border-radius: 20px;
+                    font-family: 'Poppins', sans-serif;
+                    font-size: 12px;
+                    font-weight: 500;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    z-index: 9999;
+                    transition: all 0.3s ease;
+                    opacity: 0;
+                    transform: translateY(10px);
+                `;
+                document.body.appendChild(indicator);
+            }
+            
+            if (status === 'connected') {
+                indicator.style.background = 'rgba(46, 125, 50, 0.9)';
+                indicator.style.color = 'white';
+                indicator.innerHTML = '<span style="width:8px;height:8px;background:#69f0ae;border-radius:50%;display:inline-block;"></span> Live updates active';
+                indicator.style.opacity = '1';
+                indicator.style.transform = 'translateY(0)';
+                
+                // Auto-hide after 3 seconds
+                setTimeout(() => {
+                    indicator.style.opacity = '0';
+                    indicator.style.transform = 'translateY(10px)';
+                }, 3000);
+            } else if (status === 'disconnected') {
+                indicator.style.background = 'rgba(211, 47, 47, 0.9)';
+                indicator.style.color = 'white';
+                indicator.innerHTML = '<span style="width:8px;height:8px;background:#ff6b6b;border-radius:50%;display:inline-block;"></span> Reconnecting...';
+                indicator.style.opacity = '1';
+                indicator.style.transform = 'translateY(0)';
+            }
+        }
+        
+        function handleSyncUpdate(data) {
+            // Show a subtle update banner instead of auto-refreshing
+            showUpdateBanner(data.items_updated);
+        }
+        
+        function showUpdateBanner(itemsUpdated) {
+            // Remove existing banner if any
+            let existingBanner = document.getElementById('update-banner');
+            if (existingBanner) {
+                existingBanner.remove();
+            }
+            
+            // Create update banner
+            const banner = document.createElement('div');
+            banner.id = 'update-banner';
+            banner.innerHTML = `
+                <div class="update-banner-content">
+                    <span class="update-icon">🔄</span>
+                    <span class="update-text">New stock data available (${itemsUpdated} items updated)</span>
+                    <button class="update-btn" id="refresh-btn">Refresh Now</button>
+                    <button class="dismiss-btn" id="dismiss-btn">✕</button>
+                </div>
+            `;
+            
+            // Insert at top of page
+            document.body.insertBefore(banner, document.body.firstChild);
+            
+            // Add event listeners (instead of onclick which requires global scope)
+            document.getElementById('refresh-btn').addEventListener('click', function() {
+                // Smooth refresh - preserve scroll position
+                const scrollPos = window.scrollY;
+                sessionStorage.setItem('scrollPos', scrollPos);
+                
+                // Preserve search query and filters
+                const form = document.querySelector('form[method="POST"]');
+                if (form) {
+                    form.submit();
+                } else {
+                    window.location.reload();
+                }
+            });
+            
+            document.getElementById('dismiss-btn').addEventListener('click', function() {
+                banner.classList.remove('visible');
+                setTimeout(() => banner.remove(), 300);
+            });
+            
+            // Animate in
+            setTimeout(() => banner.classList.add('visible'), 10);
+        }
+        
+        // Restore scroll position after refresh
+        window.addEventListener('load', function() {
+            const scrollPos = sessionStorage.getItem('scrollPos');
+            if (scrollPos) {
+                window.scrollTo(0, parseInt(scrollPos));
+                sessionStorage.removeItem('scrollPos');
+            }
+        });
+        
+        // Add CSS for update banner
+        if (!document.getElementById('sse-styles')) {
+            const style = document.createElement('style');
+            style.id = 'sse-styles';
+            style.textContent = `
+                #update-banner {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    background: linear-gradient(135deg, #1976d2, #0d47a1);
+                    color: white;
+                    padding: 0;
+                    z-index: 10001;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    transform: translateY(-100%);
+                    transition: transform 0.3s ease-out;
+                }
+                #update-banner.visible {
+                    transform: translateY(0);
+                }
+                .update-banner-content {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    padding: 12px 20px;
+                    flex-wrap: wrap;
+                }
+                .update-icon {
+                    font-size: 18px;
+                    animation: spin 2s linear infinite;
+                }
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                .update-text {
+                    font-family: 'Poppins', sans-serif;
+                    font-size: 14px;
+                    font-weight: 500;
+                }
+                .update-btn {
+                    background: white;
+                    color: #0d47a1;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-family: 'Poppins', sans-serif;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .update-btn:hover {
+                    background: #e3f2fd;
+                    transform: scale(1.02);
+                }
+                .dismiss-btn {
+                    background: transparent;
+                    color: white;
+                    border: none;
+                    font-size: 18px;
+                    cursor: pointer;
+                    padding: 4px 8px;
+                    opacity: 0.8;
+                    transition: opacity 0.2s;
+                }
+                .dismiss-btn:hover {
+                    opacity: 1;
+                }
+                @media (max-width: 480px) {
+                    .update-banner-content {
+                        padding: 10px 15px;
+                        gap: 8px;
+                    }
+                    .update-text {
+                        font-size: 12px;
+                        flex: 1;
+                        text-align: center;
+                    }
+                    .update-btn {
+                        padding: 6px 12px;
+                        font-size: 12px;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Connect when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', connectSSE);
+        } else {
+            connectSSE();
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', disconnectSSE);
+    })();
     </script>
 </body>
 </html>

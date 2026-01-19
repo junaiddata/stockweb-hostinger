@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cost Price Overrides</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+        
+        /* Top Navigation */
+        .top-nav {
+            background: rgba(10, 25, 41, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .nav-logo {
+            height: 36px;
+            width: auto;
+        }
+        
+        .nav-title {
+            font-size: 15px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .nav-right { display: flex; gap: 10px; }
+        
+        .nav-btn {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+        
+        /* Page Header */
+        .page-header {
+            margin-bottom: 32px;
+        }
+        
+        .page-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .page-subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+        }
+        
+        .temp-badge {
+            background: linear-gradient(135deg, #ff9800, #f57c00);
+            color: white;
+            font-size: 10px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        /* Cards */
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .card h2 {
+            color: #81d4fa;
+            margin-bottom: 16px;
+            font-size: 16px;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 12px;
+        }
+        
+        /* Alert */
+        .alert {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .alert-success {
+            background: rgba(102, 187, 106, 0.15);
+            border: 1px solid rgba(102, 187, 106, 0.3);
+            color: #a5d6a7;
+        }
+        
+        .alert-danger {
+            background: rgba(239, 83, 80, 0.15);
+            border: 1px solid rgba(239, 83, 80, 0.3);
+            color: #ef9a9a;
+        }
+        
+        .alert-warning {
+            background: rgba(255, 193, 7, 0.15);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            color: #ffecb3;
+        }
+        
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .stat-card {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #4fc3f7;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+        
+        /* Form */
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: #b0bec5;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        input[type="text"],
+        input[type="file"],
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            color: #fff;
+            font-size: 14px;
+            font-family: 'Poppins', sans-serif;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #4fc3f7;
+            box-shadow: 0 0 0 3px rgba(79, 195, 247, 0.2);
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Poppins', sans-serif;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+            color: #000;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(79, 195, 247, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #66bb6a, #43a047);
+            color: #fff;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef5350, #e53935);
+            color: #fff;
+        }
+        
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 12px;
+        }
+        
+        /* Grid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        
+        /* Search */
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .search-box input { flex: 1; }
+        
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        th {
+            background: rgba(0, 0, 0, 0.3);
+            color: #4fc3f7;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .brand-badge {
+            background: rgba(255, 152, 0, 0.2);
+            color: #ffb74d;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        /* Brand Stats */
+        .brand-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .brand-stat {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .brand-stat-count {
+            background: rgba(255, 152, 0, 0.3);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            color: #ffb74d;
+        }
+        
+        /* Info Box */
+        .info-box {
+            background: rgba(33, 150, 243, 0.1);
+            border: 1px solid rgba(33, 150, 243, 0.2);
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #90caf9;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+        
+        .info-box li {
+            margin-bottom: 4px;
+        }
+        
+        /* Danger Zone */
+        .danger-zone {
+            background: rgba(239, 83, 80, 0.05);
+            border: 1px solid rgba(239, 83, 80, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 24px;
+        }
+        
+        .danger-zone h3 {
+            color: #ef5350;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        @media (max-width: 768px) {
+            .container { padding: 20px 16px; }
+            .page-title { font-size: 22px; }
+            .grid-2 { grid-template-columns: 1fr; }
+            th, td { padding: 10px 12px; font-size: 13px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Navigation -->
+    <nav class="top-nav">
+        <div class="nav-left">
+            <a href="{{ url_for('home') }}">
+                <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Logo" class="nav-logo">
+            </a>
+            <span class="nav-title">Cost Price Overrides</span>
+        </div>
+        <div class="nav-right">
+            <a href="{{ url_for('home') }}" class="nav-btn">← Home</a>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">
+                💰 Cost Price Overrides
+                <span class="temp-badge">Temporary</span>
+            </h1>
+            <p class="page-subtitle">Upload cost prices for brands where API data is incorrect (e.g., COSMO)</p>
+        </div>
+        
+        {% if message %}
+        <div class="alert alert-{{ message_type }}">{{ message }}</div>
+        {% endif %}
+        
+        <!-- Stats -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value">{{ total_overrides }}</div>
+                <div class="stat-label">Total Overrides</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ brand_stats|length }}</div>
+                <div class="stat-label">Brands</div>
+            </div>
+        </div>
+        
+        <!-- Brand Stats -->
+        {% if brand_stats %}
+        <div class="brand-stats">
+            {% for brand, count in brand_stats %}
+            <div class="brand-stat">
+                <span>{{ brand or 'Unknown' }}</span>
+                <span class="brand-stat-count">{{ count }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="grid-2">
+            <!-- Upload Section -->
+            <div class="card">
+                <h2>📤 Upload Cost Prices</h2>
+                
+                <div class="info-box">
+                    <strong>Excel Format Required:</strong>
+                    <ul>
+                        <li><strong>ItemCode</strong> - Item code (required)</li>
+                        <li><strong>CostPrice</strong> - Cost price (required)</li>
+                        <li><strong>Brand</strong> - Brand name (optional, for tracking)</li>
+                    </ul>
+                </div>
+                
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="upload_excel">
+                    
+                    <div class="form-group">
+                        <label class="form-label">Excel File</label>
+                        <input type="file" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Brand Name (optional - if not in Excel)</label>
+                        <input type="text" name="brand_name" placeholder="e.g., COSMO">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        📤 Upload Cost Prices
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Info Section -->
+            <div class="card">
+                <h2>ℹ️ How It Works</h2>
+                
+                <div class="info-box" style="margin-bottom: 16px;">
+                    <strong>When API sync runs:</strong>
+                    <ul>
+                        <li>Items with overrides use YOUR uploaded cost price</li>
+                        <li>API cost price is IGNORED for these items</li>
+                        <li>Selling price is calculated based on override cost + margin</li>
+                        <li>Other items use API cost price as normal</li>
+                    </ul>
+                </div>
+                
+                <div class="info-box" style="background: rgba(255, 152, 0, 0.1); border-color: rgba(255, 152, 0, 0.2); color: #ffcc80;">
+                    <strong>⚠️ Temporary Solution:</strong>
+                    <p style="margin-top: 8px;">
+                        Once SAP is updated with correct cost prices, you can remove all overrides 
+                        and the system will use API data again.
+                    </p>
+                </div>
+                
+                <!-- Danger Zone -->
+                <div class="danger-zone">
+                    <h3>⚠️ Remove Overrides</h3>
+                    <p style="font-size: 13px; color: rgba(255,255,255,0.6); margin-bottom: 12px;">
+                        When SAP is fixed, remove overrides to use API data again.
+                    </p>
+                    
+                    <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <input type="hidden" name="action" value="delete_brand">
+                        <input type="text" name="brand_name" placeholder="Brand name" style="flex: 1; min-width: 150px;">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Remove all overrides for this brand?')">
+                            Remove Brand
+                        </button>
+                    </form>
+                    
+                    <form method="POST" style="margin-top: 12px;">
+                        <input type="hidden" name="action" value="delete_all">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Remove ALL cost price overrides? This cannot be undone!')">
+                            🗑️ Remove All Overrides
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Overrides Table -->
+        <div class="card">
+            <h2>📋 Current Overrides ({{ total_overrides }})</h2>
+            
+            <!-- Search -->
+            <form method="GET" class="search-box">
+                <input type="text" name="search" placeholder="Search by Item Code or Brand..." value="{{ search_query }}">
+                <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                {% if search_query %}
+                <a href="{{ url_for('admin_cost_price_overrides') }}" class="btn btn-sm" style="background: rgba(255,255,255,0.1); color: white;">Clear</a>
+                {% endif %}
+            </form>
+            
+            {% if overrides %}
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item Code</th>
+                            <th>Cost Price</th>
+                            <th>Brand</th>
+                            <th>Uploaded By</th>
+                            <th>Date</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for override in overrides %}
+                        <tr>
+                            <td><strong>{{ override[0] }}</strong></td>
+                            <td style="color: #81c784; font-weight: 600;">{{ override[1] }} AED</td>
+                            <td>
+                                {% if override[2] %}
+                                <span class="brand-badge">{{ override[2] }}</span>
+                                {% else %}
+                                <span style="color: rgba(255,255,255,0.4);">-</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ override[3] or '-' }}</td>
+                            <td style="font-size: 12px; color: rgba(255,255,255,0.5);">{{ override[4] or '-' }}</td>
+                            <td>
+                                <form method="POST" style="display: inline;">
+                                    <input type="hidden" name="action" value="delete_override">
+                                    <input type="hidden" name="item_code" value="{{ override[0] }}">
+                                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Remove this override?')">✕</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-icon">📦</div>
+                <p>No cost price overrides yet</p>
+                <p style="font-size: 13px; margin-top: 8px;">Upload an Excel file to add overrides</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

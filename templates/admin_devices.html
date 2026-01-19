@@ -1,66 +1,382 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Device Management</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
-        th { background: #f4f4f4; }
-        .status-pending { color: orange; font-weight: bold; }
-        .status-approved { color: green; font-weight: bold; }
-        button { padding: 5px 10px; cursor: pointer; border: none; border-radius: 4px; }
-        .btn-approve { background: #28a745; color: white; }
-        .btn-delete { background: #dc3545; color: white; }
-        .nav { margin-bottom: 20px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        /* Top Navigation */
+        .top-nav {
+            background: rgba(10, 25, 41, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .nav-logo {
+            height: 36px;
+            width: auto;
+        }
+        
+        .nav-title {
+            font-size: 15px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .nav-right {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .nav-btn {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .nav-btn-ghost {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .nav-btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        
+        .nav-btn-danger {
+            background: linear-gradient(135deg, #ef5350, #c62828);
+            color: white;
+        }
+        
+        /* Main Content */
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+        
+        .page-header {
+            margin-bottom: 32px;
+        }
+        
+        .page-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .page-subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+        }
+        
+        /* Alert Messages */
+        .alert {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #64b5f6;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+        
+        .stat-card.pending .stat-value { color: #ffb74d; }
+        .stat-card.approved .stat-value { color: #81c784; }
+        
+        /* Table */
+        .table-container {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 14px 18px;
+            text-align: left;
+        }
+        
+        th {
+            background: rgba(0, 0, 0, 0.2);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        td {
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 14px;
+        }
+        
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .status-pending {
+            color: #ffb74d;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .status-pending::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #ffb74d;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .status-approved {
+            color: #81c784;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .status-approved::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #81c784;
+            border-radius: 50%;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        
+        /* Action Buttons */
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn {
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Poppins', sans-serif;
+        }
+        
+        .btn-approve {
+            background: linear-gradient(135deg, #4caf50, #2e7d32);
+            color: white;
+        }
+        
+        .btn-approve:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(46, 125, 50, 0.3);
+        }
+        
+        .btn-delete {
+            background: linear-gradient(135deg, #ef5350, #c62828);
+            color: white;
+        }
+        
+        .btn-delete:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(198, 40, 40, 0.3);
+        }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container { padding: 20px 16px; }
+            .page-title { font-size: 22px; }
+            
+            .table-container { overflow-x: auto; }
+            
+            th, td { 
+                padding: 10px 12px; 
+                font-size: 13px;
+            }
+            
+            .actions { flex-direction: column; gap: 4px; }
+            .btn { padding: 6px 10px; font-size: 11px; }
+        }
     </style>
 </head>
 <body>
-    <div class="nav">
-        <a href="/">← Back to Stock</a> | 
-        <a href="/logout">Logout</a>
+    <!-- Top Navigation -->
+    <nav class="top-nav">
+        <div class="nav-left">
+            <a href="{{ url_for('home') }}">
+                <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Logo" class="nav-logo">
+            </a>
+            <span class="nav-title">Device Management</span>
+        </div>
+        <div class="nav-right">
+            <a href="{{ url_for('home') }}" class="nav-btn nav-btn-ghost">← Home</a>
+            <a href="{{ url_for('logout') }}" class="nav-btn nav-btn-danger">Logout</a>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">📱 Trusted Devices</h1>
+            <p class="page-subtitle">Manage devices that can access the Stock Management System</p>
+        </div>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <!-- Stats -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value">{{ devices|length }}</div>
+                <div class="stat-label">Total Devices</div>
+            </div>
+            <div class="stat-card approved">
+                <div class="stat-value">{{ devices|selectattr('3', 'equalto', 'approved')|list|length }}</div>
+                <div class="stat-label">Approved</div>
+            </div>
+            <div class="stat-card pending">
+                <div class="stat-value">{{ devices|selectattr('3', 'equalto', 'pending')|list|length }}</div>
+                <div class="stat-label">Pending</div>
+            </div>
+        </div>
+        
+        <!-- Devices Table -->
+        <div class="table-container">
+            {% if devices %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Device Name</th>
+                        <th>IP Address</th>
+                        <th>Status</th>
+                        <th>Registered</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dev in devices %}
+                    <tr>
+                        <td><strong>{{ dev[1] }}</strong></td>
+                        <td>{{ dev[2] }}</td>
+                        <td>
+                            <span class="status-{{ dev[3] }}">{{ dev[3]|title }}</span>
+                        </td>
+                        <td>{{ dev[4] }}</td>
+                        <td>
+                            <form method="POST" style="display:inline;">
+                                <input type="hidden" name="token" value="{{ dev[0] }}">
+                                <div class="actions">
+                                    {% if dev[3] == 'pending' %}
+                                        <button type="submit" name="action" value="approve" class="btn btn-approve">✓ Approve</button>
+                                    {% endif %}
+                                    <button type="submit" name="action" value="delete" class="btn btn-delete" onclick="return confirm('Block this device? It will need to re-register.')">✕ Block</button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">📱</div>
+                <p>No devices registered yet</p>
+            </div>
+            {% endif %}
+        </div>
     </div>
-
-    <h2>📱 Trusted Devices Management</h2>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div style="padding: 10px; margin-bottom: 10px; background: #eee;">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-
-    <table>
-        <thead>
-            <tr>
-                <th>Device Name</th>
-                <th>IP Address</th>
-                <th>Status</th>
-                <th>Created At</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for dev in devices %}
-            <tr>
-                <!-- DB Columns: 0=token, 1=name, 2=ip, 3=status, 4=date -->
-                <td>{{ dev[1] }}</td>
-                <td>{{ dev[2] }}</td>
-                <td class="status-{{ dev[3] }}">{{ dev[3] }}</td>
-                <td>{{ dev[4] }}</td>
-                <td>
-                    <form method="POST" style="display:inline;">
-                        <input type="hidden" name="token" value="{{ dev[0] }}">
-                        {% if dev[3] == 'pending' %}
-                            <button type="submit" name="action" value="approve" class="btn-approve">✅ Approve</button>
-                        {% endif %}
-                        <button type="submit" name="action" value="delete" class="btn-delete" onclick="return confirm('Block this device?')">🗑️ Block</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
 </body>
 </html>

@@ -11,6 +11,7 @@
         :root {
             --primary-color: #0d47a1; /* Deep Blue */
             --secondary-color: #1976d2; /* Lighter Blue */
+            --primary-dark: #0a1929;
             --background-color: #f4f7f9;
             --card-background: #ffffff;
             --text-color: #333;
@@ -31,24 +32,81 @@
             background-color: var(--background-color);
             color: var(--text-color);
             line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Top Navigation Bar */
+        .top-nav {
+            background: linear-gradient(135deg, var(--primary-dark) 0%, #001e3c 100%);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-logo {
+            height: 40px;
+            width: auto;
+        }
+
+        .nav-title {
+            color: white;
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        /* Main Content */
+        .main-wrapper {
             display: flex;
             justify-content: center;
-            padding: 1rem;
-            min-height: 100vh;
+            padding: 1.5rem 1rem;
         }
 
         .app-container { width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 1.5rem; }
 
-        header {
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            color: var(--white-color);
-            padding: 1rem 1.5rem;
-            text-align: center;
-            font-size: 1.5rem;
-            font-weight: 600;
-            letter-spacing: 1px;
-            border-radius: var(--border-radius);
-            box-shadow: 0 4px 15px var(--shadow-medium);
+        @media (max-width: 768px) {
+            .top-nav { padding: 10px 14px; }
+            .nav-logo { height: 32px; }
+            .nav-title { display: none; }
+            .nav-btn { padding: 6px 12px; font-size: 12px; }
         }
 
         .details-card {
@@ -119,11 +177,24 @@
     </style>
 </head>
 <body>
+    <!-- Top Navigation Bar -->
+    <nav class="top-nav">
+        <div class="nav-left">
+            <a href="{{ url_for('home') }}">
+                <img src="https://junaidworld.com/wp-content/uploads/2023/09/logo-2.png" alt="Logo" class="nav-logo">
+            </a>
+            <span class="nav-title">Stock Details - {{ branch|title }}</span>
+        </div>
+        <div class="nav-right">
+            <a href="{{ url_for('stock_page', branch=branch) }}" class="nav-btn">
+                ← Back to Search
+            </a>
+        </div>
+    </nav>
 
-    <div class="app-container">
-        <header>📦 Stock Details - {{ branch|title }}</header>
-
-        <main>
+    <div class="main-wrapper">
+        <div class="app-container">
+            <main>
             <div class="details-card">
                 {% if item %}
                     <div class="item-header">
@@ -217,8 +288,9 @@
                 {% endif %}
             </div>
 
-            <a href="javascript:history.back()" class="back-link">🔙 Back</a>
-        </main>
+            <a href="javascript:history.back()" class="back-link">← Back to Search Results</a>
+            </main>
+        </div>
     </div>
 
 </body>

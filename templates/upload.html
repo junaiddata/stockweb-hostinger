@@ -3,101 +3,363 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload Stock Data</title>
+    <title>Upload / Sync Stock Data</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/shared.css') }}">
     <style>
-        /* General Styles */
         body {
-            font-family: 'Poppins', Arial, sans-serif;
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-            margin: 0;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 50%, #0d2137 100%);
             padding: 20px;
-            color: #333;
-            line-height: 1.6;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            min-height: 100vh;
         }
-        h2 {
-            background: linear-gradient(135deg, #1a237e, #0056b3);
-            color: white;
-            padding: 15px;
-            margin: 0;
+        
+        .page-container {
+            width: 100%;
+            max-width: 600px;
+            animation: fadeInUp 0.5s ease-out;
+        }
+        
+        .page-header {
             text-align: center;
-            font-size: 24px;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            animation: fadeIn 1s ease-in-out;
-            width: 100%;
+            margin-bottom: 32px;
         }
-        form {
-            background: white;
-            padding: 20px;
-            margin: 20px auto;
-            width: 100%;
-            max-width: 500px;
-            border-radius: 15px;
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            transition: transform 0.3s ease;
-        }
-        form:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
-        }
-        input[type="file"] {
-            width: calc(100% - 20px);
-            padding: 12px;
-            font-size: 16px;
-            border: 2px solid #1a237e;
-            border-radius: 25px;
-            outline: none;
-            margin-bottom: 10px;
-            transition: all 0.3s ease;
-        }
-        input[type="file"]:focus {
-            border-color: #0056b3;
-            box-shadow: 0 0 10px rgba(0, 119, 255, 0.5);
-            transform: scale(1.02);
-        }
-        button {
-            width: 100%;
-            padding: 12px;
-            font-size: 16px;
-            background: linear-gradient(135deg, #1a237e, #0056b3);
+        
+        .page-title {
+            font-size: 28px;
+            font-weight: 700;
             color: white;
-            border: none;
-            border-radius: 25px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 0%, #90caf9 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .page-subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 20px;
+        }
+        
+        .card:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .card-title {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card-description {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        
+        .badge-recommended {
+            background: linear-gradient(135deg, #4caf50, #2e7d32);
+            color: white;
+            font-size: 10px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            cursor: pointer;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            transition: background 0.2s ease;
+        }
+        
+        .checkbox-label:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+        
+        .checkbox-label input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #1976d2;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            margin-bottom: 16px;
+        }
+        
+        .file-input {
+            width: 100%;
+            padding: 16px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            color: white;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
             cursor: pointer;
             transition: all 0.3s ease;
+        }
+        
+        .file-input:hover,
+        .file-input:focus {
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        
+        .file-input::file-selector-button {
+            background: linear-gradient(135deg, #1976d2, #0d47a1);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 500;
+            cursor: pointer;
+            margin-right: 12px;
+            transition: all 0.2s ease;
+        }
+        
+        .file-input::file-selector-button:hover {
+            background: linear-gradient(135deg, #1565c0, #0d47a1);
+        }
+        
+        .btn-sync {
+            width: 100%;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, #4caf50, #2e7d32);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 25px rgba(46, 125, 50, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .btn-sync:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(46, 125, 50, 0.4);
+        }
+        
+        .btn-upload {
+            width: 100%;
+            padding: 14px 24px;
+            background: linear-gradient(135deg, #1976d2, #0d47a1);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(13, 71, 161, 0.3);
+        }
+        
+        .btn-upload:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(13, 71, 161, 0.4);
+        }
+        
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 28px 0;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .divider span {
+            padding: 0 16px;
+        }
+        
+        /* Results Card */
+        .results-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            animation: fadeInUp 0.5s ease-out;
+        }
+        
+        .results-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .results-icon {
+            font-size: 28px;
+        }
+        
+        .results-title {
+            color: white;
+            font-size: 18px;
             font-weight: 600;
         }
-        button:hover {
-            background: linear-gradient(135deg, #0056b3, #1a237e);
-            transform: scale(1.05);
+        
+        .results-success {
+            color: #69f0ae;
         }
-        .back-btn {
-            margin-top: 20px;
-            display: inline-block;
-            padding: 10px 20px;
-            background: #007bff;
+        
+        .results-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-item {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 16px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
             color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: all 0.3s ease;
         }
-        .back-btn:hover {
-            background: #0056b3;
-            transform: scale(1.05);
+        
+        .stat-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+        
+        .results-details {
+            margin-top: 16px;
+        }
+        
+        .details-toggle {
+            background: none;
+            border: none;
+            color: #64b5f6;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .details-toggle:hover {
+            color: #90caf9;
+        }
+        
+        .details-table {
+            width: 100%;
+            margin-top: 12px;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        .details-table th,
+        .details-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .details-table th {
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+            background: rgba(0, 0, 0, 0.2);
+        }
+        
+        .details-table td {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .status-success {
+            color: #69f0ae;
+        }
+        
+        .status-failed {
+            color: #ff6b6b;
+        }
+        
+        .error-text {
+            color: #ff6b6b;
+            font-size: 11px;
+            display: block;
+            margin-top: 4px;
+        }
+        
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            font-size: 14px;
+            margin-top: 20px;
+            transition: color 0.2s ease;
+        }
+        
+        .back-link:hover {
+            color: white;
         }
 
         /* Animations */
-        @keyframes fadeIn {
+        @keyframes fadeInUp {
             from {
                 opacity: 0;
-                transform: translateY(-20px);
+                transform: translateY(20px);
             }
             to {
                 opacity: 1;
@@ -105,100 +367,198 @@
             }
         }
 
-        /* Mobile Responsiveness */
-        @media (max-width: 768px) {
-            h2 {
-                font-size: 20px;
-                padding: 10px;
+        /* Decorations */
+        .decoration {
+            position: fixed;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: -1;
             }
-            form {
-                padding: 15px;
+        
+        .decoration-1 {
+            width: 500px;
+            height: 500px;
+            top: -200px;
+            right: -200px;
+            background: radial-gradient(circle, rgba(25, 118, 210, 0.08) 0%, transparent 70%);
             }
-            input[type="file"] {
-                font-size: 14px;
-                padding: 10px;
+        
+        .decoration-2 {
+            width: 400px;
+            height: 400px;
+            bottom: -150px;
+            left: -150px;
+            background: radial-gradient(circle, rgba(76, 175, 80, 0.06) 0%, transparent 70%);
             }
-            button {
-                font-size: 14px;
-                padding: 10px;
-            }
-            .back-btn {
-                font-size: 14px;
-                padding: 8px 15px;
-            }
-        }
+        
         @media (max-width: 480px) {
-            h2 {
-                font-size: 18px;
-                padding: 8px;
+            .page-title {
+                font-size: 24px;
             }
-            form {
-                padding: 10px;
+            
+            .card {
+                padding: 20px;
             }
-            input[type="file"] {
-                font-size: 12px;
-                padding: 8px;
-            }
-            button {
-                font-size: 12px;
-                padding: 8px;
-            }
-            .back-btn {
-                font-size: 12px;
-                padding: 6px 12px;
+            
+            .results-stats {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Header -->
-    <h2>Upload Stock Data File</h2>
-    File name should be 'stock_details'<br>
-    The File should contain sheets named 'OUTPU_RAS' and 'OUTPUT_DIP'
-
-    <!-- Upload Form -->
+    <div class="decoration decoration-1"></div>
+    <div class="decoration decoration-2"></div>
+    
+    <div class="page-container">
+        <header class="page-header">
+            <h1 class="page-title">Upload / Sync Stock</h1>
+            <p class="page-subtitle">Sync from API or upload Excel file</p>
+        </header>
+        
+        {% if api_sync_results %}
+        <!-- API Sync Results -->
+        <div class="results-card">
+            <div class="results-header">
+                {% if api_sync_success %}
+                    <span class="results-icon">✅</span>
+                    <span class="results-title results-success">Sync Completed Successfully!</span>
+                {% else %}
+                    <span class="results-icon">⚠️</span>
+                    <span class="results-title">Sync Completed with Errors</span>
+                {% endif %}
+            </div>
+            
+            <div class="results-stats">
+                <div class="stat-item">
+                    <div class="stat-value">{{ total_items }}</div>
+                    <div class="stat-label">Items Updated</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ success_count }}/8</div>
+                    <div class="stat-label">Warehouses Synced</div>
+                </div>
+            </div>
+            
+            <div class="results-details">
+                <details>
+                    <summary class="details-toggle">📋 View Details</summary>
+                    <table class="details-table">
+                        <thead>
+                            <tr>
+                                <th>Warehouse</th>
+                                <th>Status</th>
+                                <th>Items</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for wh, result in api_sync_results.items() %}
+                            <tr>
+                                <td>{{ wh }}</td>
+                                <td>
+                                    {% if result.success %}
+                                        <span class="status-success">✓ Success</span>
+                                    {% else %}
+                                        <span class="status-failed">✗ Failed</span>
+                                        {% if result.error %}
+                                            <span class="error-text">{{ result.error }}</span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                                <td>{{ result.items_updated }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- API Sync Card -->
+        <div class="card">
+            <h2 class="card-title">
+                🔄 Sync from API
+                <span class="badge-recommended">Recommended</span>
+            </h2>
+            <p class="card-description">
+                Fetch stock data directly from the integration API. This is the fastest and most reliable method.
+            </p>
+            
+            <form action="{{ url_for('upload_file') }}" method="post">
+                <input type="hidden" name="sync_from_api" value="1">
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="keep_admin_prices" checked id="keep_admin_prices_api">
+                        <span>Preserve admin-edited prices</span>
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn-sync">
+                    <span>🔄</span> Sync from API
+                </button>
+            </form>
+        </div>
+        
+        <div class="divider"><span>or</span></div>
+        
+        <!-- Excel Upload Card -->
+        <div class="card">
+            <h2 class="card-title">📁 Upload Excel File</h2>
+            <p class="card-description">
+                Upload an Excel file named 'stock_details' containing sheets 'OUTPUT_RAS' and 'OUTPUT_DIP'. 
+                This is the legacy method.
+            </p>
+            
     <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" required>
-        <button type="submit">Upload</button>
+                <div class="file-input-wrapper">
+                    <input type="file" name="file" class="file-input" required accept=".xlsx,.xls">
+                </div>
 
-        <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-            <input type="checkbox" id="keep_admin_prices" name="keep_admin_prices" checked>
-            Preserve admin-edited prices
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="keep_admin_prices" checked id="keep_admin_prices_excel">
+                        <span>Preserve admin-edited prices</span>
         </label>
+                </div>
+                
+                <button type="submit" class="btn-upload">Upload Excel</button>
     </form>
+        </div>
 
-    <!-- Back Button -->
-    <a href="{{ url_for('home') }}" class="back-btn">🔙 Back to Home</a>
+        <a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
+    </div>
 
     <script>
         // Confirm when user toggles "Preserve admin-edited prices"
-        const keepCb = document.getElementById('keep_admin_prices');
-        if (keepCb) {
-            let previousChecked = keepCb.checked;
+        function setupCheckboxConfirm(checkboxId) {
+            const cb = document.getElementById(checkboxId);
+            if (!cb) return;
+            
+            let previousChecked = cb.checked;
 
-            keepCb.addEventListener('change', function (e) {
-                const nowChecked = keepCb.checked;
+            cb.addEventListener('change', function() {
+                const nowChecked = cb.checked;
 
                 let message;
                 if (nowChecked) {
-                    message =
-                        "Are you sure you want to PRESERVE admin-edited prices?\n\n" +
-                        "- Excel prices will NOT overwrite prices changed from the web app.";
+                    message = "✓ Admin-edited prices will be PRESERVED.\n\nNew prices from API/Excel will NOT overwrite prices you've changed in the web app.";
                 } else {
-                    message =
-                        "Are you sure you want to OVERWRITE admin-edited prices?\n\n" +
-                        "- Excel prices will REPLACE prices changed from the web app.";
+                    message = "⚠️ Admin-edited prices will be OVERWRITTEN.\n\nNew prices from API/Excel WILL replace all prices, including those you've changed in the web app.\n\nAre you sure?";
                 }
 
                 const ok = confirm(message);
                 if (!ok) {
-                    // revert to previous state
-                    keepCb.checked = previousChecked;
+                    cb.checked = previousChecked;
                 } else {
                     previousChecked = nowChecked;
                 }
             });
         }
+        
+        setupCheckboxConfirm('keep_admin_prices_api');
+        setupCheckboxConfirm('keep_admin_prices_excel');
     </script>
 </body>
 </html>

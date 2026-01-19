@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brand Margin Management</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #4fc3f7;
+            font-size: 28px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        .card h2 {
+            color: #81d4fa;
+            margin-bottom: 20px;
+            font-size: 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #b0bec5;
+            font-size: 14px;
+        }
+        input[type="text"],
+        input[type="number"],
+        input[type="file"],
+        select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #4fc3f7;
+            box-shadow: 0 0 10px rgba(79, 195, 247, 0.3);
+        }
+        button, .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+            color: #000;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(79, 195, 247, 0.4);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #66bb6a, #43a047);
+            color: #fff;
+        }
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 187, 106, 0.4);
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #ef5350, #e53935);
+            color: #fff;
+        }
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(239, 83, 80, 0.4);
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .alert-success {
+            background: rgba(102, 187, 106, 0.2);
+            border: 1px solid #66bb6a;
+            color: #a5d6a7;
+        }
+        .alert-danger {
+            background: rgba(239, 83, 80, 0.2);
+            border: 1px solid #ef5350;
+            color: #ef9a9a;
+        }
+        .alert-warning {
+            background: rgba(255, 193, 7, 0.2);
+            border: 1px solid #ffc107;
+            color: #ffecb3;
+        }
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .search-box input {
+            flex: 1;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        th {
+            background: rgba(0, 0, 0, 0.3);
+            color: #4fc3f7;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .margin-input {
+            width: 80px;
+            padding: 6px 10px;
+            text-align: center;
+        }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-custom {
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+        }
+        .badge-default {
+            background: rgba(158, 158, 158, 0.2);
+            color: #9e9e9e;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 25px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-box .number {
+            font-size: 28px;
+            font-weight: 700;
+            color: #4fc3f7;
+        }
+        .stat-box .label {
+            font-size: 12px;
+            color: #9e9e9e;
+            margin-top: 5px;
+        }
+        .back-link {
+            color: #4fc3f7;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        .inline-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .default-margin-display {
+            font-size: 36px;
+            font-weight: 700;
+            color: #4fc3f7;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .table-container {
+            overflow-x: auto;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background: #1a1a2e;
+            z-index: 10;
+        }
+        .save-status {
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        .save-status.saving { color: #ffc107; }
+        .save-status.saved { color: #66bb6a; }
+        .save-status.error { color: #ef5350; }
+        
+        @media (max-width: 768px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+            .stats {
+                flex-direction: column;
+            }
+            table {
+                font-size: 13px;
+            }
+            th, td {
+                padding: 8px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
+        
+        <h1>Brand Margin Management</h1>
+        
+        {% if message %}
+        <div class="alert alert-{{ message_type }}">
+            {{ message }}
+        </div>
+        {% endif %}
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div class="number">{{ total_brands }}</div>
+                <div class="label">Total Brands</div>
+            </div>
+            <div class="stat-box">
+                <div class="number">{{ default_margin }}%</div>
+                <div class="label">Default Margin</div>
+            </div>
+            <div class="stat-box">
+                <div class="number">{{ brands|selectattr('is_custom')|list|length }}</div>
+                <div class="label">Custom Margins</div>
+            </div>
+        </div>
+        
+        <div class="grid-2">
+            <!-- Default Margin Card -->
+            <div class="card">
+                <h2>Default Margin (All Brands)</h2>
+                <p style="color: #9e9e9e; margin-bottom: 15px; font-size: 13px;">
+                    This margin applies to all brands that don't have a custom margin set.
+                </p>
+                <form method="POST">
+                    <input type="hidden" name="action" value="update_default">
+                    <div class="form-group">
+                        <label>Default Margin Percentage</label>
+                        <div class="inline-form">
+                            <input type="number" name="default_margin" value="{{ default_margin }}" 
+                                   step="0.01" min="0" max="1000" style="width: 120px;">
+                            <span style="color: #9e9e9e;">%</span>
+                            <button type="submit" class="btn btn-primary">Update Default</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Import from Excel Card -->
+            <div class="card">
+                <h2>Import from Excel</h2>
+                <p style="color: #9e9e9e; margin-bottom: 15px; font-size: 13px;">
+                    Upload Excel with columns: <strong>Brand Name</strong> and <strong>Margin %</strong>
+                </p>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="import_excel">
+                    <div class="form-group">
+                        <input type="file" name="excel_file" accept=".xlsx,.xls" required>
+                    </div>
+                    <button type="submit" class="btn btn-success">Import Margins</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Brand List Card -->
+        <div class="card">
+            <h2>Brand Margins ({{ brands|length }} shown)</h2>
+            
+            <!-- Search -->
+            <form method="GET" class="search-box">
+                <input type="text" name="q" placeholder="Search brand name..." value="{{ search_query }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+                {% if search_query %}
+                <a href="{{ url_for('admin_brand_margins') }}" class="btn btn-secondary">Clear</a>
+                {% endif %}
+            </form>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Brand / Manufacturer</th>
+                            <th>Margin %</th>
+                            <th>Status</th>
+                            <th>Last Updated</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for brand in brands %}
+                        <tr data-brand="{{ brand.name }}">
+                            <td>{{ loop.index }}</td>
+                            <td><strong>{{ brand.name }}</strong></td>
+                            <td>
+                                <div class="inline-form">
+                                    <input type="number" class="margin-input" 
+                                           value="{{ brand.margin }}" 
+                                           step="0.01" min="0" max="1000"
+                                           data-brand="{{ brand.name }}"
+                                           onchange="updateMargin(this)">
+                                    <span>%</span>
+                                    <span class="save-status" id="status-{{ loop.index }}"></span>
+                                </div>
+                            </td>
+                            <td>
+                                {% if brand.is_custom %}
+                                <span class="badge badge-custom">Custom</span>
+                                {% else %}
+                                <span class="badge badge-default">Default</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if brand.edited_at %}
+                                <small>{{ brand.edited_at }} by {{ brand.edited_by }}</small>
+                                {% else %}
+                                <small style="color: #666;">-</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if brand.is_custom %}
+                                <form method="POST" style="display: inline;" onsubmit="return confirm('Reset to default margin?')">
+                                    <input type="hidden" name="action" value="delete_brand">
+                                    <input type="hidden" name="brand_name" value="{{ brand.name }}">
+                                    <button type="submit" class="btn btn-danger btn-sm">Reset</button>
+                                </form>
+                                {% else %}
+                                <span style="color: #666; font-size: 12px;">Using default</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            {% if not brands %}
+            <p style="text-align: center; color: #666; padding: 40px;">
+                {% if search_query %}
+                No brands found matching "{{ search_query }}"
+                {% else %}
+                No brands found. Run a stock sync first to populate manufacturers.
+                {% endif %}
+            </p>
+            {% endif %}
+        </div>
+        
+        <!-- Add New Brand Card -->
+        <div class="card">
+            <h2>Add Custom Margin for Brand</h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="update_brand">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Brand Name</label>
+                        <input type="text" name="brand_name" placeholder="Enter brand name..." required>
+                    </div>
+                    <div class="form-group">
+                        <label>Margin Percentage</label>
+                        <div class="inline-form">
+                            <input type="number" name="margin_percent" value="{{ default_margin }}" 
+                                   step="0.01" min="0" max="1000" style="width: 120px;">
+                            <span style="color: #9e9e9e;">%</span>
+                            <button type="submit" class="btn btn-success">Add/Update</button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        function updateMargin(input) {
+            const brand = input.dataset.brand;
+            const margin = parseFloat(input.value);
+            const row = input.closest('tr');
+            const statusEl = row.querySelector('.save-status');
+            
+            if (isNaN(margin) || margin < 0) {
+                statusEl.textContent = 'Invalid';
+                statusEl.className = 'save-status error';
+                return;
+            }
+            
+            statusEl.textContent = 'Saving...';
+            statusEl.className = 'save-status saving';
+            
+            fetch('/api/brand-margin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    brand_name: brand,
+                    margin_percent: margin
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.ok) {
+                    statusEl.textContent = 'Saved!';
+                    statusEl.className = 'save-status saved';
+                    // Update badge to custom
+                    const badge = row.querySelector('.badge');
+                    if (badge) {
+                        badge.textContent = 'Custom';
+                        badge.className = 'badge badge-custom';
+                    }
+                    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+                } else {
+                    statusEl.textContent = data.error || 'Error';
+                    statusEl.className = 'save-status error';
+                }
+            })
+            .catch(err => {
+                statusEl.textContent = 'Error';
+                statusEl.className = 'save-status error';
+            });
+        }
+    </script>
+</body>
+</html>
