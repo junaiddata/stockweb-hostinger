@@ -186,7 +186,17 @@
             <span class="nav-title">Stock Details - {{ branch|title }}</span>
         </div>
         <div class="nav-right">
-            <a href="{{ url_for('stock_page', branch=branch) }}" class="nav-btn">
+            {% if branch == 'DIP' %}
+                <a href="{{ url_for('headoffice') }}" class="nav-btn">
+            {% elif branch == 'RASALKHORE' %}
+                <a href="{{ url_for('rasalkhor') }}" class="nav-btn">
+            {% elif branch == 'ALABAMA' %}
+                <a href="{{ url_for('alabama') }}" class="nav-btn">
+            {% elif branch == 'ALLSTORES' %}
+                <a href="{{ url_for('allstores') }}" class="nav-btn">
+            {% else %}
+                <a href="{{ url_for('home') }}" class="nav-btn">
+            {% endif %}
                 ← Back to Search
             </a>
         </div>

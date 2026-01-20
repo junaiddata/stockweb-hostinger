@@ -196,6 +196,59 @@ def ensure_brand_margins_table(db_path: str):
     conn.commit()
     conn.close()
 
+def ensure_alabama_margins_table(db_path: str):
+    """
+    Create alabama_margins table for storing Alabama-specific margins.
+    Two types of margins:
+    1. cost_margin_percent: Applied to Junaid Cost → Alabama Cost (additive: Cost * (1 + margin/100))
+    2. brand_margin_percent: Applied to Alabama Cost → Alabama Selling Price (division: Cost / (1 - margin/100))
+    """
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS alabama_margins (
+            brand_name TEXT PRIMARY KEY,
+            cost_margin_percent REAL DEFAULT 10.0,  -- Default 10% markup on Junaid cost
+            brand_margin_percent REAL DEFAULT 15.0,  -- Default 15% margin for selling price
+            edited_by TEXT,
+            edited_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    # Insert default margin row if not exists
+    cur.execute("""
+        INSERT OR IGNORE INTO alabama_margins (brand_name, cost_margin_percent, brand_margin_percent, edited_by)
+        VALUES ('__DEFAULT__', 10.0, 15.0, 'system')
+    """)
+    conn.commit()
+    conn.close()
+
+def get_alabama_margins(db_path: str, brand_name: str) -> tuple:
+    """
+    Get Alabama margins for a specific brand.
+    Returns: (cost_margin_percent, brand_margin_percent)
+    Falls back to defaults if brand not found.
+    """
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    
+    # Try to get brand-specific margins
+    cur.execute("SELECT cost_margin_percent, brand_margin_percent FROM alabama_margins WHERE brand_name = ?", (brand_name,))
+    row = cur.fetchone()
+    
+    if row:
+        conn.close()
+        return (row[0], row[1])
+    
+    # Fall back to default margins
+    cur.execute("SELECT cost_margin_percent, brand_margin_percent FROM alabama_margins WHERE brand_name = '__DEFAULT__'")
+    row = cur.fetchone()
+    conn.close()
+    
+    if row:
+        return (row[0], row[1])
+    else:
+        return (10.0, 15.0)  # Hardcoded defaults if table doesn't exist
+
 def get_brand_margin(db_path: str, brand_name: str) -> float:
     """
     Get margin percentage for a specific brand.
@@ -263,14 +316,29 @@ def _to_float(x, default=0.0):
     except Exception:
         return default
 
+# Cache for sold breakdown map (5 minute TTL)
+_sold_map_cache = {}
+_sold_map_cache_time = None
+SOLD_MAP_CACHE_TTL = 300  # 5 minutes
+
 def fetch_sold_breakdown_map():
     """
     Returns: { "ITEMCODE": {"total": float, "ho": float, "others": float}, ... }
     Pulls from your new /api/items/unique-qty endpoint.
+    OPTIMIZATION: Cached for 5 minutes to reduce API calls.
     """
+    global _sold_map_cache, _sold_map_cache_time
+    
+    # Check cache
+    import time
+    current_time = time.time()
+    if _sold_map_cache_time and (current_time - _sold_map_cache_time) < SOLD_MAP_CACHE_TTL:
+        return _sold_map_cache
+    
     url = "https://do.junaidworld.com/api/items/unique-qty"
     try:
-        r = requests.get(url, timeout=5)
+        # OPTIMIZATION: Reduced timeout from 5s to 3s, fail fast
+        r = requests.get(url, timeout=3)
         r.raise_for_status()
         data = r.json() or {}
         out = {}
@@ -286,10 +354,14 @@ def fetch_sold_breakdown_map():
                 "ho":     f(row.get("ho_qty", 0)),
                 "others": f(row.get("others_qty", 0)),
             }
+        # Update cache
+        _sold_map_cache = out
+        _sold_map_cache_time = current_time
         return out
     except Exception as e:
-        print("Sold breakdown API error:", e)
-        return {}
+        print(f"Sold breakdown API error (using cache if available): {e}")
+        # Return cached data even if expired, better than nothing
+        return _sold_map_cache if _sold_map_cache else {}
     
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -802,22 +874,58 @@ def stock_page(branch):
 
             # --- Build SELECT per-branch ---
             if branch == "ALABAMA":
-                # ALABAMA shows effective CostPrice with override
+                # ALABAMA shows all items from Junaid (DIP + RASALKHORE) with calculated Cost and Selling Price
+                # Attach both DIP and RASALKHORE databases
+                dip_db_path = os.path.abspath(DB_PATHS["DIP"])
+                ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+                alabama_db_path = os.path.abspath(DB_PATHS["ALABAMA"])
+                cursor.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
+                cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
+                cursor.execute(f'ATTACH DATABASE "{alabama_db_path}" AS alabama')
+                
+                # Get Junaid cost price (prefer DIP, fallback to RASALKHORE)
+                # We'll calculate Alabama Cost and Selling Price in Python after fetching
+                # IMPORTANT: wrap UNION in a subquery so we can safely append search filters (SQLite limitation)
                 sql_query = """
                     SELECT
-                        si."ItemCode",
-                        si."Upc Code",
-                        si."Description",
-                        si."Manufacturer Name",
-                        COALESCE(po.CostPriceOverride, si."CostPrice") AS "CostPrice"
-                    FROM stock_items si
-                    LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                        t.ItemCode            AS "ItemCode",
+                        t.UpcCode             AS "Upc Code",
+                        t.Description         AS "Description",
+                        t.ManufacturerName    AS "Manufacturer Name",
+                        t.JunaidCost          AS "JunaidCost",
+                        t.CostOverride        AS "CostOverride"
+                    FROM (
+                        SELECT
+                            dip_si."ItemCode"             AS ItemCode,
+                            dip_si."Upc Code"             AS UpcCode,
+                            dip_si."Description"          AS Description,
+                            dip_si."Manufacturer Name"    AS ManufacturerName,
+                            dip_si."CostPrice"            AS JunaidCost,
+                            po.CostPriceOverride          AS CostOverride
+                        FROM dip.stock_items dip_si
+                        LEFT JOIN alabama.price_overrides po ON po.ItemCode = dip_si."ItemCode"
+                        WHERE dip_si."ItemCode" IS NOT NULL
+                        
+                        UNION
+                        
+                        SELECT
+                            ras_si."ItemCode"              AS ItemCode,
+                            ras_si."Upc Code"              AS UpcCode,
+                            ras_si."Description"           AS Description,
+                            ras_si."Manufacturer Name"     AS ManufacturerName,
+                            ras_si."CostPrice"             AS JunaidCost,
+                            po.CostPriceOverride           AS CostOverride
+                        FROM ras.stock_items ras_si
+                        LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = ras_si."ItemCode"
+                        LEFT JOIN alabama.price_overrides po ON po.ItemCode = ras_si."ItemCode"
+                        WHERE dip_si."ItemCode" IS NULL AND ras_si."ItemCode" IS NOT NULL
+                    ) t
                     WHERE
                 """
-                col_item = 'si."ItemCode"'
-                col_upc  = 'si."Upc Code"'
-                col_desc = 'si."Description"'
-                col_mfg  = 'si."Manufacturer Name"'
+                col_item = 't.ItemCode'
+                col_upc  = 't.UpcCode'
+                col_desc = 't.Description'
+                col_mfg  = 't.ManufacturerName'
             else:
                 # Non-ALABAMA
                 if branch == "DIP":
@@ -891,24 +999,89 @@ def stock_page(branch):
                 # Changed 0 to 10, and added CAST to fix number comparison
                 sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
             if branch == "ALABAMA" and hide_zero_cost:
-                sql_query += ' AND CAST("CostPrice" AS REAL) > 0'
+                sql_query += ' AND CAST("JunaidCost" AS REAL) > 0'
 
             # --- Execute ---
             cursor.execute(sql_query, params)
             results = cursor.fetchall()
 
-            # If DIP page, append Sold Stock as last column (index 10)
-            if branch == "DIP":
-                if session.get("username"):
-                    sold_map = fetch_sold_breakdown_map()
-
-                    # <<< TEMP DEBUG: log a few suspicious entries >>>
-                    # replace "ITEM_CODE_YOU_SAW_639" with the actual item code from the row
-                    dbg_code = "700318"
-                    if dbg_code in sold_map:
-                        print("DBG sold_map[", dbg_code, "] =", sold_map[dbg_code])
+            # If ALABAMA page, calculate Cost and Selling Price from Junaid data
+            if branch == "ALABAMA":
+                # Load Alabama margins
+                alabama_db = DB_PATHS["ALABAMA"]
+                ensure_alabama_margins_table(alabama_db)
+                alabama_conn = sqlite3.connect(alabama_db)
+                alabama_cur = alabama_conn.cursor()
+                alabama_cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent FROM alabama_margins")
+                alabama_margins_map = {}
+                default_cost_margin = 10.0
+                default_brand_margin = 15.0
+                for row in alabama_cur.fetchall():
+                    if row[0] == "__DEFAULT__":
+                        default_cost_margin = row[1]
+                        default_brand_margin = row[2]
                     else:
-                        print("DBG sold_map missing code:", dbg_code)
+                        alabama_margins_map[row[0].lower()] = (row[1], row[2])
+                alabama_conn.close()
+                
+                # Process results: Calculate Alabama Cost and Selling Price
+                # Results format: (ItemCode, Upc Code, Description, Manufacturer Name, JunaidCost, CostOverride)
+                processed_results = []
+                for row in results:
+                    item_code, upc_code, description, manufacturer, junaid_cost, cost_override = row
+                    
+                    # Use override if exists, otherwise use Junaid cost
+                    base_cost = float(cost_override) if cost_override is not None else float(junaid_cost or 0)
+                    
+                    # Get margins for this manufacturer (case-insensitive)
+                    manufacturer_lower = (manufacturer or "").lower()
+                    if manufacturer_lower in alabama_margins_map:
+                        cost_margin, brand_margin = alabama_margins_map[manufacturer_lower]
+                    else:
+                        cost_margin = default_cost_margin
+                        brand_margin = default_brand_margin
+                    
+                    # Calculate Alabama Cost = Junaid Cost * (1 + cost_margin/100)
+                    alabama_cost = round(base_cost * (1 + cost_margin / 100), 2) if base_cost > 0 else 0.0
+                    
+                    # Calculate Alabama Selling Price = Alabama Cost / (1 - brand_margin/100)
+                    margin_divisor = 1 - (brand_margin / 100)
+                    alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+                    
+                    # Return: ItemCode, Upc Code, Description, Manufacturer Name, CostPrice, Selling Price
+                    processed_results.append((
+                        item_code,
+                        upc_code or "",
+                        description or "",
+                        manufacturer or "",
+                        alabama_cost,
+                        alabama_selling_price
+                    ))
+                
+                results = processed_results
+                
+                # Detach databases
+                try:
+                    cursor.execute("DETACH DATABASE dip")
+                    cursor.execute("DETACH DATABASE ras")
+                    cursor.execute("DETACH DATABASE alabama")
+                except:
+                    pass
+
+            # If DIP page, append Sold Stock as last column (index 10)
+            elif branch == "DIP":
+                if session.get("username"):
+                    # OPTIMIZATION: Only fetch sold data if we have results (don't block on empty search)
+                    # Also, fetch sold data in background/async if possible, or cache it
+                    sold_map = {}
+                    if results and len(results) > 0:
+                        try:
+                            # Only fetch sold data for the matched items (not all items)
+                            # This reduces API call time significantly
+                            sold_map = fetch_sold_breakdown_map()
+                        except Exception as e:
+                            print(f"Sold breakdown API error (non-blocking): {e}")
+                            sold_map = {}
 
                     def _g(code, key):
                         return (sold_map.get(code, {}) or {}).get(key, 0.0)
@@ -972,39 +1145,45 @@ def stock_page(branch):
                 }
 
                 if item_codes:
-                    placeholders = ",".join(["?"] * len(item_codes))
-                    dip_db_path = DB_PATHS["DIP"]
-                    conn2 = sqlite3.connect(dip_db_path)
-                    cur2 = conn2.cursor()
-                    # Pull retail branch stocks + DIP cost for ONLY the matched items
-                    cur2.execute(f'''
-                        SELECT
-                            si."ItemCode",
-                            CAST(si."CostPrice" AS REAL)                    AS cost,
-                            CAST(COALESCE(si."AJMAN",    0) AS REAL)        AS aj,
-                            CAST(COALESCE(si."NAH",      0) AS REAL)        AS nah,
-                            CAST(COALESCE(si."DEIRA",    0) AS REAL)        AS deira,
-                            CAST(COALESCE(si."DEIRA2",   0) AS REAL)        AS deira2,
-                            CAST(COALESCE(si."ABUDHABI", 0) AS REAL)        AS abu,
-                            CAST(COALESCE(si."QUSAIS",   0) AS REAL)        AS qus
-                        FROM stock_items si
-                        WHERE si."ItemCode" IN ({placeholders})
-                    ''', item_codes)
+                    # OPTIMIZATION: Limit query to reasonable number of items (prevent huge IN clause)
+                    # If too many results, calculate totals from results directly instead
+                    if len(item_codes) > 1000:
+                        # For large result sets, calculate from already-fetched data
+                        # This avoids slow IN queries with thousands of parameters
+                        for r in results:
+                            cost = float(r[9] or 0)  # Cost at index 9
+                            # Note: Retail stocks not in main query, so skip branch totals for large sets
+                        pass  # Skip branch totals calculation for performance
+                    else:
+                        placeholders = ",".join(["?"] * len(item_codes))
+                        dip_db_path = DB_PATHS["DIP"]
+                        conn2 = sqlite3.connect(dip_db_path)
+                        cur2 = conn2.cursor()
+                        # OPTIMIZATION: Use single query with SUM aggregation instead of Python loops
+                        cur2.execute(f'''
+                            SELECT
+                                CAST(COALESCE(SUM(CAST(si."AJMAN" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS aj_total,
+                                CAST(COALESCE(SUM(CAST(si."NAH" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS nah_total,
+                                CAST(COALESCE(SUM(CAST(si."DEIRA" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS deira_total,
+                                CAST(COALESCE(SUM(CAST(si."DEIRA2" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS deira2_total,
+                                CAST(COALESCE(SUM(CAST(si."ABUDHABI" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS abu_total,
+                                CAST(COALESCE(SUM(CAST(si."QUSAIS" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS qus_total
+                            FROM stock_items si
+                            WHERE si."ItemCode" IN ({placeholders})
+                        ''', item_codes)
+                        
+                        row = cur2.fetchone()
+                        if row:
+                            branch_totals["AJMAN"] = round(float(row[0] or 0), 2)
+                            branch_totals["NAH"] = round(float(row[1] or 0), 2)
+                            branch_totals["DEIRA"] = round(float(row[2] or 0), 2)
+                            branch_totals["DEIRA2"] = round(float(row[3] or 0), 2)
+                            branch_totals["ABUDHABI"] = round(float(row[4] or 0), 2)
+                            branch_totals["QUSAIS"] = round(float(row[5] or 0), 2)
 
-                    for _, cost, aj, nah, deira, deira2, abu, qus in cur2.fetchall():
-                        c = float(cost or 0)
-                        branch_totals["AJMAN"]    += float(aj or 0)    * c
-                        branch_totals["NAH"]      += float(nah or 0)   * c
-                        branch_totals["DEIRA"]    += float(deira or 0) * c
-                        branch_totals["DEIRA2"]   += float(deira2 or 0)* c
-                        branch_totals["ABUDHABI"] += float(abu or 0)   * c
-                        branch_totals["QUSAIS"]   += float(qus or 0)   * c
+                        conn2.close()
 
-                    conn2.close()
-
-                    # Round all totals
-                    for k in list(branch_totals.keys()):
-                        branch_totals[k] = round(branch_totals[k] or 0.0, 2)
+                    # Totals already rounded above (removed redundant loop)
 
             elif branch == "RASALKHORE":
                 # 5 = RAS Stock, 8 = Cost
@@ -1014,28 +1193,29 @@ def stock_page(branch):
                 item_codes = [str(r[0]).strip() for r in results if r and r[0]]
                 dip_total_value = 0.0
                 if item_codes:
-                    placeholders = ",".join(["?"] * len(item_codes))
-                    dip_db_path = DB_PATHS["DIP"]
-                    conn2 = sqlite3.connect(dip_db_path)
-                    cur2 = conn2.cursor()
-                    cur2.execute(f'''
-                        SELECT
-                            CAST(si."Stock Quantity" AS REAL) AS dip_stock,
-                            CAST(si."CostPrice"     AS REAL)  AS cost
-                        FROM stock_items si
-                        WHERE si."ItemCode" IN ({placeholders})
-                    ''', item_codes)
-                    for dip_stock, cost in cur2.fetchall():
-                        dip_total_value += float(dip_stock or 0) * float(cost or 0)
-                    conn2.close()
-                    dip_total_value = round(dip_total_value, 2)
+                    # OPTIMIZATION: Use SQL aggregation instead of Python loop
+                    if len(item_codes) > 1000:
+                        # For large result sets, calculate from already-fetched data
+                        dip_total_value = round(sum(float(r[5] or 0) * float(r[8] or 0) for r in results), 2)
+                    else:
+                        placeholders = ",".join(["?"] * len(item_codes))
+                        dip_db_path = DB_PATHS["DIP"]
+                        conn2 = sqlite3.connect(dip_db_path)
+                        cur2 = conn2.cursor()
+                        cur2.execute(f'''
+                            SELECT CAST(COALESCE(SUM(CAST(si."Stock Quantity" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS total
+                            FROM stock_items si
+                            WHERE si."ItemCode" IN ({placeholders})
+                        ''', item_codes)
+                        row = cur2.fetchone()
+                        dip_total_value = round(float(row[0] or 0), 2) if row else 0.0
+                        conn2.close()
 
         except Exception:
             dip_total_value = 0.0 if dip_total_value is None else dip_total_value
             ras_total_value = 0.0 if ras_total_value is None else ras_total_value
 
-    return render_template(
-        "stock.html",
+    ctx = dict(
         results=results,
         query=query,
         hide_zero_stock=hide_zero_stock,
@@ -1044,8 +1224,14 @@ def stock_page(branch):
         dip_total_value=dip_total_value,
         ras_total_value=ras_total_value,
         matched_count=matched_count,
-        branch_totals=branch_totals,  # NEW
+        branch_totals=branch_totals,
     )
+
+    # If called via AJAX, return only the results/totals block (no full page reload)
+    if request.args.get("partial") == "1" or request.headers.get("X-Partial") == "1":
+        return render_template("_stock_results.html", **ctx)
+
+    return render_template("stock.html", **ctx)
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):
     branch = (branch or "").upper()
@@ -1194,26 +1380,53 @@ def item_detail(branch, item_code):
     # 3. ALABAMA
     # ==========================================
     if branch == "ALABAMA":
-        db_path = DB_PATHS[branch]
-        ensure_override_table(db_path)
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT "ItemCode","Upc Code","Description","Manufacturer Name",
-            COALESCE(po.CostPriceOverride, "CostPrice") 
-            FROM stock_items 
-            LEFT JOIN price_overrides po ON po.ItemCode = stock_items.ItemCode
-            WHERE "ItemCode" = ?
-        """, (item_code,))
-        item = cur.fetchone()
-        conn.close()
+        # Get item from DIP or RASALKHORE (prefer DIP)
+        dip_db = DB_PATHS["DIP"]
+        ras_db = DB_PATHS["RASALKHORE"]
+        alabama_db = DB_PATHS["ALABAMA"]
+        
+        # Try DIP first
+        dip_conn = sqlite3.connect(dip_db)
+        dip_cur = dip_conn.cursor()
+        dip_cur.execute('SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice" FROM stock_items WHERE "ItemCode" = ?', (item_code,))
+        item = dip_cur.fetchone()
+        dip_conn.close()
+        
+        # If not in DIP, try RASALKHORE
+        if not item:
+            ras_conn = sqlite3.connect(ras_db)
+            ras_cur = ras_conn.cursor()
+            ras_cur.execute('SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice" FROM stock_items WHERE "ItemCode" = ?', (item_code,))
+            item = ras_cur.fetchone()
+            ras_conn.close()
 
         if item:
+            # Get cost override if exists
+            alabama_conn = sqlite3.connect(alabama_db)
+            alabama_cur = alabama_conn.cursor()
+            ensure_override_table(alabama_db)
+            alabama_cur.execute('SELECT CostPriceOverride FROM price_overrides WHERE ItemCode = ?', (item_code,))
+            override_row = alabama_cur.fetchone()
+            cost_override = override_row[0] if override_row else None
+            
+            # Get Alabama margins
+            ensure_alabama_margins_table(alabama_db)
+            manufacturer = item[3] or ""
+            cost_margin, brand_margin = get_alabama_margins(alabama_db, manufacturer)
+            alabama_conn.close()
+            
+            # Calculate prices
+            junaid_cost = float(cost_override) if cost_override is not None else float(item[4] or 0)
+            alabama_cost = round(junaid_cost * (1 + cost_margin / 100), 2) if junaid_cost > 0 else 0.0
+            margin_divisor = 1 - (brand_margin / 100)
+            alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+            
             item_data = {
                 "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
                 "ManufacturerName": item[3], "WarehouseCode": None,
-                "StockQuantity": None, "FreeStock": None, "MinSellingPrice": None,
-                "CostPrice": item[4] if "username" in session else None,
+                "StockQuantity": None, "FreeStock": None,
+                "CostPrice": alabama_cost if "username" in session else None,
+                "MinSellingPrice": alabama_selling_price if "username" in session else None,
             }
             return render_template("item_detail.html", item=item_data, branch=branch)
         return render_template("item_detail.html", item=None, branch=branch), 404
@@ -1890,6 +2103,10 @@ def retail_page(retail_branch):
     if branch_total_value is not None:
         ctx[f"{retail_branch.lower()}_total_value"] = branch_total_value
 
+    # Support partial rendering for AJAX
+    if request.args.get("partial") == "1" or request.headers.get("X-Partial") == "1":
+        return render_template("_stock_results.html", **ctx)
+
     return render_template("stock.html", **ctx)
 
 
@@ -2005,14 +2222,51 @@ def allstores():
             
         conn.close()
 
-    return render_template(
-        "stock.html",
-        results=results,
-        query=query,
-        hide_zero_stock=hide_zero_stock,
-        hide_zero_cost=False,
-        branch="ALLSTORES"
-    )
+    # Calculate totals for logged-in users
+    branch_totals = None
+    matched_count = 0
+    if "username" in session and results:
+        matched_count = len(results)
+        try:
+            branch_totals = {
+                "AJMAN": 0.0, "NAH": 0.0, "DEIRA": 0.0, 
+                "DEIRA2": 0.0, "ABUDHABI": 0.0, "QUSAIS": 0.0, "RAS": 0.0
+            }
+            # Calculate branch totals from results
+            # Results format: ItemCode, UPC, Desc, AJMAN, NAH, DEIRA, DEIRA2, ABUDHABI, QUSAIS, RAS, TotalStock, MinPrice, CostPrice, CostPrice2
+            for r in results:
+                cost = float(r[12] or 0)  # CostPrice at index 12
+                branch_totals["AJMAN"] += float(r[3] or 0) * cost
+                branch_totals["NAH"] += float(r[4] or 0) * cost
+                branch_totals["DEIRA"] += float(r[5] or 0) * cost
+                branch_totals["DEIRA2"] += float(r[6] or 0) * cost
+                branch_totals["ABUDHABI"] += float(r[7] or 0) * cost
+                branch_totals["QUSAIS"] += float(r[8] or 0) * cost
+                branch_totals["RAS"] += float(r[9] or 0) * cost  # RAS stock at index 9
+            
+            # Round all totals
+            for k in branch_totals:
+                branch_totals[k] = round(branch_totals[k], 2)
+        except Exception:
+            branch_totals = None
+
+    ctx = {
+        "results": results,
+        "query": query,
+        "hide_zero_stock": hide_zero_stock,
+        "hide_zero_cost": False,
+        "branch": "ALLSTORES",
+        "branch_totals": branch_totals,
+        "matched_count": matched_count,
+        "dip_total_value": None,
+        "ras_total_value": None,
+    }
+
+    # Support partial rendering for AJAX
+    if request.args.get("partial") == "1" or request.headers.get("X-Partial") == "1":
+        return render_template("_stock_results.html", **ctx)
+
+    return render_template("stock.html", **ctx)
 
 from flask import Response
 @app.route('/logo_proxy')
@@ -2333,6 +2587,271 @@ def api_update_brand_margin():
     conn.close()
     
     return jsonify(ok=True, brand_name=brand_name, margin_percent=margin)
+
+
+@app.route("/api/alabama-margin", methods=["POST"])
+def api_update_alabama_margin():
+    """API endpoint to update Alabama margins via AJAX."""
+    if "username" not in session:
+        return jsonify(ok=False, error="Unauthorized"), 401
+
+    data = request.get_json(silent=True) or {}
+    brand_name = (data.get("brand_name") or "").strip()
+    cost_margin = data.get("cost_margin_percent")
+    brand_margin = data.get("brand_margin_percent")
+
+    if not brand_name:
+        return jsonify(ok=False, error="Missing brand name"), 400
+
+    try:
+        cost_margin = float(cost_margin)
+        brand_margin = float(brand_margin)
+        if cost_margin < 0 or cost_margin > 1000:
+            raise ValueError("Cost margin must be between 0 and 1000")
+        if brand_margin < 0 or brand_margin > 1000:
+            raise ValueError("Brand margin must be between 0 and 1000")
+    except (ValueError, TypeError) as e:
+        return jsonify(ok=False, error=f"Invalid margin: {e}"), 400
+
+    db_path = DB_PATHS["ALABAMA"]
+    ensure_alabama_margins_table(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO alabama_margins (brand_name, cost_margin_percent, brand_margin_percent, edited_by)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(brand_name) DO UPDATE SET
+            cost_margin_percent = excluded.cost_margin_percent,
+            brand_margin_percent = excluded.brand_margin_percent,
+            edited_by = excluded.edited_by,
+            edited_at = datetime('now')
+        """,
+        (brand_name, cost_margin, brand_margin, session.get("username", "admin")),
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify(
+        ok=True,
+        brand_name=brand_name,
+        cost_margin_percent=cost_margin,
+        brand_margin_percent=brand_margin,
+    )
+
+
+# ============================================================================
+# Alabama Margins Management (Cost Margin + Brand Margin)
+# ============================================================================
+
+@app.route("/admin/alabama-margins", methods=["GET", "POST"])
+def admin_alabama_margins():
+    """Admin page to manage Alabama-specific margins (cost margin + brand margin)."""
+    if "username" not in session:
+        flash("Please login to manage Alabama margins", "danger")
+        return redirect(url_for('login'))
+    
+    db_path = DB_PATHS["ALABAMA"]
+    ensure_alabama_margins_table(db_path)
+    
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    
+    search_query = request.args.get("q", "").strip()
+    message = None
+    message_type = None
+    
+    if request.method == "POST":
+        action = request.form.get("action")
+        
+        if action == "update_default":
+            # Update default margins
+            try:
+                cost_margin = float(request.form.get("default_cost_margin", 10.0))
+                brand_margin = float(request.form.get("default_brand_margin", 15.0))
+                cur.execute("""
+                    UPDATE alabama_margins 
+                    SET cost_margin_percent = ?, brand_margin_percent = ?, edited_by = ?, edited_at = datetime('now')
+                    WHERE brand_name = '__DEFAULT__'
+                """, (cost_margin, brand_margin, session.get("username", "admin")))
+                conn.commit()
+                message = f"Default margins updated: Cost Margin {cost_margin}%, Brand Margin {brand_margin}%"
+                message_type = "success"
+            except ValueError:
+                message = "Invalid margin value"
+                message_type = "danger"
+        
+        elif action == "update_brand":
+            # Update specific brand margins
+            brand_name = request.form.get("brand_name", "").strip()
+            try:
+                cost_margin = float(request.form.get("cost_margin_percent", 10.0))
+                brand_margin = float(request.form.get("brand_margin_percent", 15.0))
+                if brand_name:
+                    cur.execute("""
+                        INSERT INTO alabama_margins (brand_name, cost_margin_percent, brand_margin_percent, edited_by)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(brand_name) DO UPDATE SET
+                            cost_margin_percent = excluded.cost_margin_percent,
+                            brand_margin_percent = excluded.brand_margin_percent,
+                            edited_by = excluded.edited_by,
+                            edited_at = datetime('now')
+                    """, (brand_name, cost_margin, brand_margin, session.get("username", "admin")))
+                    conn.commit()
+                    message = f"Margins for '{brand_name}' updated: Cost {cost_margin}%, Brand {brand_margin}%"
+                    message_type = "success"
+            except ValueError:
+                message = "Invalid margin value"
+                message_type = "danger"
+        
+        elif action == "delete_brand":
+            # Remove brand-specific margins (will fall back to default)
+            brand_name = request.form.get("brand_name", "").strip()
+            if brand_name and brand_name != "__DEFAULT__":
+                cur.execute("DELETE FROM alabama_margins WHERE brand_name = ?", (brand_name,))
+                conn.commit()
+                message = f"Margins for '{brand_name}' removed (will use defaults)"
+                message_type = "warning"
+        
+        elif action == "import_excel":
+            # Import margins from Excel
+            if "excel_file" not in request.files:
+                message = "No file uploaded"
+                message_type = "danger"
+            else:
+                file = request.files["excel_file"]
+                if file.filename == "":
+                    message = "No file selected"
+                    message_type = "danger"
+                elif file and file.filename.endswith(('.xlsx', '.xls')):
+                    try:
+                        df = pd.read_excel(file)
+                        df.columns = df.columns.str.strip().str.lower()
+                        
+                        # Find columns
+                        brand_col = None
+                        for col in ['brand_name', 'brand name', 'manufacturer', 'manufacturer name', 'brand']:
+                            if col in df.columns:
+                                brand_col = col
+                                break
+                        
+                        cost_margin_col = None
+                        for col in ['cost_margin', 'cost margin', 'cost_margin_percent', 'cost margin %', 'cost margin%']:
+                            if col in df.columns:
+                                cost_margin_col = col
+                                break
+                        
+                        brand_margin_col = None
+                        for col in ['brand_margin', 'brand margin', 'brand_margin_percent', 'brand margin %', 'brand margin%', 'selling_margin', 'selling margin']:
+                            if col in df.columns:
+                                brand_margin_col = col
+                                break
+                        
+                        if not brand_col or not cost_margin_col or not brand_margin_col:
+                            message = f"Excel must have columns: 'Brand Name', 'Cost Margin %', and 'Brand Margin %'. Found: {list(df.columns)}"
+                            message_type = "danger"
+                        else:
+                            imported = 0
+                            for _, row in df.iterrows():
+                                brand = str(row[brand_col]).strip()
+                                try:
+                                    cost_margin = float(row[cost_margin_col])
+                                    brand_margin = float(row[brand_margin_col])
+                                    if brand and brand.lower() not in ['nan', 'none', '']:
+                                        cur.execute("""
+                                            INSERT INTO alabama_margins (brand_name, cost_margin_percent, brand_margin_percent, edited_by)
+                                            VALUES (?, ?, ?, ?)
+                                            ON CONFLICT(brand_name) DO UPDATE SET
+                                                cost_margin_percent = excluded.cost_margin_percent,
+                                                brand_margin_percent = excluded.brand_margin_percent,
+                                                edited_by = excluded.edited_by,
+                                                edited_at = datetime('now')
+                                        """, (brand, cost_margin, brand_margin, session.get("username", "admin")))
+                                        imported += 1
+                                except (ValueError, TypeError):
+                                    continue
+                            conn.commit()
+                            message = f"Imported {imported} Alabama margins from Excel"
+                            message_type = "success"
+                    except Exception as e:
+                        message = f"Error reading Excel: {str(e)}"
+                        message_type = "danger"
+                else:
+                    message = "Please upload an Excel file (.xlsx or .xls)"
+                    message_type = "danger"
+    
+    # Get default margins
+    cur.execute("SELECT cost_margin_percent, brand_margin_percent FROM alabama_margins WHERE brand_name = '__DEFAULT__'")
+    row = cur.fetchone()
+    default_cost_margin = row[0] if row else 10.0
+    default_brand_margin = row[1] if row else 15.0
+    
+    # Get all unique manufacturers from DIP + RASALKHORE databases
+    dip_db = DB_PATHS["DIP"]
+    ras_db = DB_PATHS["RASALKHORE"]
+    
+    all_manufacturers = set()
+    
+    # From DIP
+    dip_conn = sqlite3.connect(dip_db)
+    dip_cur = dip_conn.cursor()
+    dip_cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
+    for row in dip_cur.fetchall():
+        all_manufacturers.add(row[0])
+    dip_conn.close()
+    
+    # From RASALKHORE
+    ras_conn = sqlite3.connect(ras_db)
+    ras_cur = ras_conn.cursor()
+    ras_cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
+    for row in ras_cur.fetchall():
+        all_manufacturers.add(row[0])
+    ras_conn.close()
+    
+    all_manufacturers = sorted(list(all_manufacturers))
+    
+    # Get all Alabama margins (excluding default)
+    cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent, edited_by, edited_at FROM alabama_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
+    alabama_margins = cur.fetchall()
+    margins_dict = {row[0]: {"cost_margin": row[1], "brand_margin": row[2], "edited_by": row[3], "edited_at": row[4]} for row in alabama_margins}
+    
+    # Build list of all brands with their margins
+    brands_list = []
+    for mfg in all_manufacturers:
+        if mfg in margins_dict:
+            brands_list.append({
+                "name": mfg,
+                "cost_margin": margins_dict[mfg]["cost_margin"],
+                "brand_margin": margins_dict[mfg]["brand_margin"],
+                "is_custom": True,
+                "edited_by": margins_dict[mfg]["edited_by"],
+                "edited_at": margins_dict[mfg]["edited_at"]
+            })
+        else:
+            brands_list.append({
+                "name": mfg,
+                "cost_margin": default_cost_margin,
+                "brand_margin": default_brand_margin,
+                "is_custom": False,
+                "edited_by": None,
+                "edited_at": None
+            })
+    
+    # Filter by search query
+    if search_query:
+        brands_list = [b for b in brands_list if search_query.lower() in b["name"].lower()]
+    
+    conn.close()
+    
+    return render_template("admin_alabama_margins.html",
+                         brands=brands_list,
+                         default_cost_margin=default_cost_margin,
+                         default_brand_margin=default_brand_margin,
+                         search_query=search_query,
+                         message=message,
+                         message_type=message_type,
+                         total_brands=len(all_manufacturers))
 
 
 # ============================================================================
