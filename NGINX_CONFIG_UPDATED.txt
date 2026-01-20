@@ -1,0 +1,57 @@
+server {
+    server_name stock.junaidworld.com;
+    client_max_body_size 100M;
+    
+    location /api/stock-stream/ {
+        include proxy_params;
+        proxy_pass http://unix:/var/www/stockweb/stockweb.sock;
+        
+        # Force HTTP/1.1 (SSE doesn't work with HTTP/2)
+        proxy_http_version 1.1;
+        
+        # Disable buffering for SSE
+        proxy_buffering off;
+        proxy_cache off;
+        
+        # Headers for SSE
+        proxy_set_header Connection '';
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        
+        # Timeouts for long-lived connections
+        proxy_read_timeout 24h;
+        proxy_send_timeout 24h;
+        
+        # Disable request buffering
+        proxy_request_buffering off;
+        chunked_transfer_encoding on;
+        
+        # Additional headers to prevent HTTP/2 issues
+        proxy_set_header Upgrade '';
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    # Regular location for all other endpoints
+    location / {
+        include proxy_params;
+        proxy_pass http://unix:/var/www/stockweb/stockweb.sock;
+    }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/stock.junaidworld.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/stock.junaidworld.com/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+}
+server {
+    if ($host = stock.junaidworld.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80;
+    server_name stock.junaidworld.com;
+    return 404; # managed by Certbot
+}

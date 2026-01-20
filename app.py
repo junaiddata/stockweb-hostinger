@@ -1480,7 +1480,8 @@ def api_sync_stock():
         # Load brand margins for calculating selling prices (always from DIP DB)
         dip_db = DB_PATHS["DIP"]
         ensure_brand_margins_table(dip_db)
-        brand_margins = {}
+        brand_margins = {}  # Case-sensitive lookup: {brand_name: margin}
+        brand_margins_lower = {}  # Case-insensitive lookup: {brand_name.lower(): (original_name, margin)}
         default_margin = DEFAULT_MARGIN_PERCENT
         
         # Load margins from DIP DB (central margin storage)
@@ -1491,8 +1492,27 @@ def api_sync_stock():
             if row[0] == "__DEFAULT__":
                 default_margin = row[1]
             else:
-                brand_margins[row[0]] = row[1]
+                brand_name = row[0]
+                margin = row[1]
+                brand_margins[brand_name] = margin
+                # Create case-insensitive lookup
+                brand_margins_lower[brand_name.lower()] = (brand_name, margin)
         margin_conn.close()
+        
+        # Helper function for case-insensitive brand margin lookup
+        def get_brand_margin_case_insensitive(manufacturer_name):
+            """Get brand margin with case-insensitive lookup."""
+            if not manufacturer_name:
+                return default_margin
+            # Try exact match first
+            if manufacturer_name in brand_margins:
+                return brand_margins[manufacturer_name]
+            # Try case-insensitive match
+            manufacturer_lower = manufacturer_name.lower()
+            if manufacturer_lower in brand_margins_lower:
+                return brand_margins_lower[manufacturer_lower][1]
+            # Fall back to default
+            return default_margin
         
         # Load cost price overrides (for brands like COSMO where API cost is wrong)
         cost_price_overrides = get_cost_price_overrides(dip_db)
@@ -1555,9 +1575,9 @@ def api_sync_stock():
             # Check if admin has edited this price
             if keep_admin_prices and item_code in existing_overrides:
                 selling_price = existing_overrides[item_code]  # Keep admin-edited price (NOT affected by brand margin)
-            elif stock_column == "Stock Quantity":  # Warehouse 01 - calculate brand-specific margin
-                # Get margin for this manufacturer/brand
-                margin_percent = brand_margins.get(manufacturer, default_margin)
+            elif stock_column == "Stock Quantity":  # Warehouse 01 (DIP) or 08 (RASALKHORE) - calculate brand-specific margin
+                # Get margin for this manufacturer/brand (case-insensitive lookup)
+                margin_percent = get_brand_margin_case_insensitive(manufacturer)
                 # Calculate using division: Cost / (1 - margin/100)
                 # Example: 15% margin = Cost / 0.85, 16% margin = Cost / 0.84
                 margin_divisor = 1 - (margin_percent / 100)
@@ -1565,9 +1585,12 @@ def api_sync_stock():
                 # Calculate selling price with brand-specific margin (using override cost if exists)
                 if cost_for_margin > 0 and margin_divisor > 0:
                     selling_price = round(cost_for_margin / margin_divisor, 2)
+                    # Debug: Log when brand margin is different from default (first 5 items only)
+                    if margin_percent != default_margin and len([i for i in items_to_insert if i.get("ItemCode") == item_code]) == 0:
+                        print(f"[Brand Margin] Item {item_code}: Manufacturer='{manufacturer}', Margin={margin_percent}%, Cost={cost_for_margin}, Selling={selling_price}")
                 else:
                     selling_price = 0.0
-            else:  # Retail warehouses 02-07 - preserve existing
+            else:  # Retail warehouses 02-07 - preserve existing selling price
                 selling_price = 0  # Will use existing below
             
             # Build row data
@@ -2545,7 +2568,13 @@ def stock_stream(branch):
                     except ValueError:
                         pass
     
-    return Response(event_stream(), mimetype="text/event-stream")
+    # Create response with proper SSE headers for production
+    response = Response(event_stream(), mimetype="text/event-stream")
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'  # Disable buffering in Nginx
+    response.headers['Connection'] = 'keep-alive'
+    response.headers['Access-Control-Allow-Origin'] = '*'  # Adjust if needed for CORS
+    return response
 
 
 @app.route("/api/notify-sync-complete", methods=["POST"])
