@@ -260,10 +260,10 @@
                                     <span class="label">Stock Quantity</span>
                                     <span class="value">{{ item.StockQuantity|int }}</span>
                                 </div>
-                                <div class="stat stock-stat">
+                                {# <div class="stat stock-stat">
                                     <span class="label">Free Stock</span>
                                     <span class="value">{{ item.FreeStock|int }}</span>
-                                </div>
+                                </div> #}
                             {% endif %}
                             
                             {% if item.MinSellingPrice is not none %}

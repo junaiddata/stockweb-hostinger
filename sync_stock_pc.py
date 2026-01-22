@@ -15,6 +15,8 @@ import os
 import requests
 import json
 import traceback
+import time
+import schedule
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -327,6 +329,44 @@ def main():
         log_message("=" * 70, also_print=False)
         return 1
 
+def run_scheduled_sync():
+    """Wrapper function for scheduled execution."""
+    try:
+        main()
+    except Exception as e:
+        log_message(f"Error in scheduled sync: {e}")
+        log_message(traceback.format_exc())
+
 if __name__ == "__main__":
-    exit_code = main()
-    sys.exit(exit_code)
+    # Check if running as background service (no arguments) or one-time run (with --once)
+    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+        # One-time run mode (for testing or manual execution)
+        exit_code = main()
+        sys.exit(exit_code)
+    else:
+        # Background service mode - runs continuously
+        log_message("=" * 70)
+        log_message("PC Stock Sync Service Started")
+        log_message("=" * 70)
+        log_message(f"Service will sync every 5 minutes")
+        log_message(f"Log file: {LOG_FILE}")
+        log_message("Press Ctrl+C to stop the service")
+        log_message("=" * 70)
+        
+        # Schedule sync to run every 5 minutes
+        schedule.every(5).minutes.do(run_scheduled_sync)
+        
+        # Run immediately on startup (don't wait 5 minutes)
+        log_message("\nRunning initial sync...")
+        run_scheduled_sync()
+        
+        # Keep running and checking schedule
+        try:
+            while True:
+                schedule.run_pending()
+                time.sleep(60)  # Check every minute
+        except KeyboardInterrupt:
+            log_message("\n" + "=" * 70)
+            log_message("Service stopped by user")
+            log_message("=" * 70)
+            sys.exit(0)

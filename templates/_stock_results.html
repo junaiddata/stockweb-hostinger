@@ -219,7 +219,7 @@
                         <div class="pill-row">
                             <span class="pill">DIP: <b>{{ item[5] }}</b></span>
                             <span class="pill alt">RAS: <b>{{ item[6] }}</b></span>
-                            <span class="pill neutral">Free: <b>{{ item[7] }}</b></span>
+                            {# <span class="pill neutral">Free: <b>{{ item[7] }}</b></span> #}
                         </div>
 
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
@@ -245,7 +245,7 @@
                         </span>
                     </div>
                     <div class="card-body">
-                        <p><strong>Stock:</strong> {{ item[5] }} | <strong>Free:</strong> {{ item[6] }}</p>
+                        <p><strong>Stock:</strong> {{ item[5] }}{# | <strong>Free:</strong> {{ item[6] }} #}</p>
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
                         <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
@@ -272,13 +272,13 @@
                     <th class="right">DIP Stock</th>
                     <th class="right">RAS Stock</th>
                     <th class="right">Total Stock</th>
-                    <th class="right">Free Stock</th>
+                    {# <th class="right">Free Stock</th> #}
                     {% if session.username %}
                     <th class="right">Sold Stock</th>
                     {% endif %}
                   {% else %}
                     <th class="right">Stock</th>
-                    <th class="right">Free Stock</th>
+                    {# <th class="right">Free Stock</th> #}
                   {% endif %}
 
                   <th class="right">Min. Price</th>
@@ -301,7 +301,7 @@
                       <td class="right">{{ item[5] |int}}</td>
                       <td class="right">{{ item[6] |int}}</td>
                       <td class="right">{{ item[10] |int}}</td>
-                      <td class="right">{{ item[7] |int}}</td>
+                      {# <td class="right">{{ item[7] |int}}</td> #}
                       {% if session.username %}
                       <td class="right sold-cell">
                         {{ item[11]|default(0) }}
@@ -342,7 +342,7 @@
 
                     {% else %}
                       <td class="right">{{ item[5]|int }}</td>
-                      <td class="right">{{ item[6] |int }}</td>
+                      {# <td class="right">{{ item[6] |int }}</td> #}
 
                       <td class="right">
                         <span class="min-price-view" data-value="{{ item[7] }}">
