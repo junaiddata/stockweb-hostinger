@@ -1813,7 +1813,12 @@ def api_sync_stock():
                 final_upc = upc_code if upc_code else existing.get("Upc Code", "")
                 final_description = description if description else existing.get("Description", "")
                 final_manufacturer = manufacturer if manufacturer else existing.get("Manufacturer Name", "")
-                final_whs_code = whs_code if whs_code else existing.get("Warehouse Code", "")
+                # Only update warehouse code when syncing warehouse 01 (main DIP warehouse)
+                # For retail warehouses (02-07), preserve existing warehouse code (should be "01")
+                if stock_column == "Stock Quantity":  # Warehouse 01
+                    final_whs_code = whs_code if whs_code else existing.get("Warehouse Code", "01")
+                else:  # Retail warehouses 02-07 - preserve existing warehouse code
+                    final_whs_code = existing.get("Warehouse Code", "01")
                 
                 # Cost price: Check for override first (for brands like COSMO)
                 # If override exists, use it instead of API price
