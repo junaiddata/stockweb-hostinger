@@ -1486,19 +1486,52 @@ def stock_api():
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT
-            si."ItemCode",
-            si."Description",
-            si."Manufacturer Name",
-            si."Warehouse Code",
-            si."Stock Quantity",
-            COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
-            si."CostPrice",
-            si."Upc Code"
-        FROM stock_items si
-        LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-    """)
+    # Attach RASALKHORE database to get total stock (DIP + RASALKHORE)
+    ras_attached = False
+    ras_db_path = DB_PATHS.get("RASALKHORE")
+    if ras_db_path:
+        ras_db_path = os.path.abspath(ras_db_path)
+        if os.path.exists(ras_db_path):
+            try:
+                cur.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
+                ras_attached = True
+            except sqlite3.Error:
+                ras_attached = False
+
+    if ras_attached:
+        cur.execute("""
+            SELECT
+                si."ItemCode",
+                si."Description",
+                si."Manufacturer Name",
+                si."Warehouse Code",
+                si."Stock Quantity" AS "DIP Stock",
+                COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",
+                (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)) AS "Total Stock",
+                COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
+                si."CostPrice",
+                si."Upc Code"
+            FROM stock_items si
+            LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
+            LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+        """)
+    else:
+        # If RASALKHORE database not available, use DIP stock only
+        cur.execute("""
+            SELECT
+                si."ItemCode",
+                si."Description",
+                si."Manufacturer Name",
+                si."Warehouse Code",
+                si."Stock Quantity" AS "DIP Stock",
+                0 AS "RAS Stock",
+                si."Stock Quantity" AS "Total Stock",
+                COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
+                si."CostPrice",
+                si."Upc Code"
+            FROM stock_items si
+            LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+        """)
 
     rows = cur.fetchall()
     conn.close()
@@ -1509,10 +1542,12 @@ def stock_api():
             "description": row[1],
             "manufacturer": row[2],
             "warehouse": row[3],
-            "stock_quantity": row[4],
-            "minimum_selling_price": row[5],  # effective price
-            "cost_price": row[6],
-            "upc_code": row[7]
+            "dip_stock": row[4],
+            "ras_stock": row[5],
+            "total_stock": row[6],
+            "minimum_selling_price": row[7],  # effective price
+            "cost_price": row[8],
+            "upc_code": row[9]
         }
         for row in rows
     ]
