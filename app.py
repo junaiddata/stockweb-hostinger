@@ -323,7 +323,7 @@ SOLD_MAP_CACHE_TTL = 300  # 5 minutes
 
 def fetch_sold_breakdown_map():
     """
-    Returns: { "ITEMCODE": {"total": float, "ho": float, "others": float}, ... }
+    Returns: { "ITEMCODE": {"total": float, "ho": float, "others": float, "total_2025": float, "total_2026": float}, ... }
     Pulls from your new /api/items/unique-qty endpoint.
     OPTIMIZATION: Cached for 5 minutes to reduce API calls.
     """
@@ -353,6 +353,8 @@ def fetch_sold_breakdown_map():
                 "total":  f(row.get("total_qty", 0)),
                 "ho":     f(row.get("ho_qty", 0)),
                 "others": f(row.get("others_qty", 0)),
+                "total_2025": f(row.get("total_2025", 0)),
+                "total_2026": f(row.get("total_2026", 0)),
             }
         # Update cache
         _sold_map_cache = out
@@ -1091,6 +1093,8 @@ def stock_page(branch):
                             _g(str(row[0]).strip(), "total"),
                             _g(str(row[0]).strip(), "ho"),
                             _g(str(row[0]).strip(), "others"),
+                            _g(str(row[0]).strip(), "total_2025"),
+                            _g(str(row[0]).strip(), "total_2026"),
                         )
                         for row in results
                     ]
