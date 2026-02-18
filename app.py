@@ -10,24 +10,72 @@ import uuid
 import threading
 import queue
 import json
+import time
+from contextlib import contextmanager
 
 
 DEVICE_DB = "devices.db"
 
+# Database connection helper with timeout and WAL mode
+@contextmanager
+def get_db_connection(db_path: str, timeout: float = 10.0, retries: int = 3):
+    """
+    Get SQLite database connection with timeout and retry logic.
+    Enables WAL mode for better concurrent access.
+    """
+    conn = None
+    for attempt in range(retries):
+        try:
+            conn = sqlite3.connect(db_path, timeout=timeout)
+            # Enable WAL mode for concurrent reads
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
+            yield conn
+            conn.commit()
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < retries - 1:
+                wait_time = 0.1 * (2 ** attempt)  # Exponential backoff
+                time.sleep(wait_time)
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass
+                continue
+            else:
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass
+                raise
+        except Exception:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            raise
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+
 def init_device_db():
-    conn = sqlite3.connect(DEVICE_DB)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS trusted_devices (
-            token TEXT PRIMARY KEY,
-            device_name TEXT,
-            ip_address TEXT,
-            status TEXT DEFAULT 'pending', -- 'pending' or 'approved'
-            created_at TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with get_db_connection(DEVICE_DB) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS trusted_devices (
+                token TEXT PRIMARY KEY,
+                device_name TEXT,
+                ip_address TEXT,
+                status TEXT DEFAULT 'pending', -- 'pending' or 'approved'
+                created_at TEXT
+            )
+        ''')
 
 
 # Initialize it on startup
@@ -107,11 +155,14 @@ def device_restriction_middleware():
         return redirect(url_for('register_device'))
 
     # 4. Check Database
-    conn = sqlite3.connect(DEVICE_DB)
-    c = conn.cursor()
-    c.execute("SELECT status FROM trusted_devices WHERE token = ?", (token,))
-    row = c.fetchone()
-    conn.close()
+    try:
+        with get_db_connection(DEVICE_DB) as conn:
+            c = conn.cursor()
+            c.execute("SELECT status FROM trusted_devices WHERE token = ?", (token,))
+            row = c.fetchone()
+    except sqlite3.OperationalError:
+        # If database is locked, allow access (fail open for better UX)
+        return redirect(url_for('register_device'))
 
     # 5. Logic:
     # If no record found -> Re-register
@@ -153,20 +204,28 @@ def ensure_retail_override_table(db_path: str):
     Overrides for retail branches live only in the DIP DB.
     Keyed by (ItemCode, Branch). Does NOT affect existing price_overrides tables.
     """
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS retail_overrides (
-            ItemCode TEXT,
-            Branch   TEXT,
-            SellingPriceOverride REAL,
-            edited_by TEXT,
-            edited_at TEXT DEFAULT (datetime('now')),
-            PRIMARY KEY (ItemCode, Branch)
-        )
-    """)
-    conn.commit()
-    conn.close()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with get_db_connection(db_path, timeout=5.0) as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS retail_overrides (
+                        ItemCode TEXT,
+                        Branch   TEXT,
+                        SellingPriceOverride REAL,
+                        edited_by TEXT,
+                        edited_at TEXT DEFAULT (datetime('now')),
+                        PRIMARY KEY (ItemCode, Branch)
+                    )
+                """)
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))
+                continue
+            else:
+                raise
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -178,23 +237,31 @@ def ensure_brand_margins_table(db_path: str):
     Create brand_margins table for storing margin percentages per brand/manufacturer.
     Also stores the default margin setting.
     """
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS brand_margins (
-            brand_name TEXT PRIMARY KEY,
-            margin_percent REAL DEFAULT 15.0,
-            edited_by TEXT,
-            edited_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    # Insert default margin row if not exists
-    cur.execute("""
-        INSERT OR IGNORE INTO brand_margins (brand_name, margin_percent, edited_by)
-        VALUES ('__DEFAULT__', 15.0, 'system')
-    """)
-    conn.commit()
-    conn.close()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with get_db_connection(db_path, timeout=5.0) as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS brand_margins (
+                        brand_name TEXT PRIMARY KEY,
+                        margin_percent REAL DEFAULT 15.0,
+                        edited_by TEXT,
+                        edited_at TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                # Insert default margin row if not exists
+                cur.execute("""
+                    INSERT OR IGNORE INTO brand_margins (brand_name, margin_percent, edited_by)
+                    VALUES ('__DEFAULT__', 15.0, 'system')
+                """)
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))
+                continue
+            else:
+                raise
 
 def ensure_alabama_margins_table(db_path: str):
     """
@@ -817,68 +884,83 @@ def process_excel(filepath, keep_admin_prices=True):
 
 
 def ensure_override_table(db_path: str):
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    # Base table (if new DB)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS price_overrides (
-            ItemCode TEXT PRIMARY KEY,
-            SellingPriceOverride REAL,   -- used by DIP/RASALKHORE
-            CostPriceOverride    REAL,   -- used by ALABAMA
-            edited_by TEXT,
-            edited_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    # If the table already existed without one of the columns, add it.
-    cur.execute("PRAGMA table_info(price_overrides)")
-    cols = {r[1] for r in cur.fetchall()}
-    if "SellingPriceOverride" not in cols:
-        cur.execute('ALTER TABLE price_overrides ADD COLUMN SellingPriceOverride REAL')
-    if "CostPriceOverride" not in cols:
-        cur.execute('ALTER TABLE price_overrides ADD COLUMN CostPriceOverride REAL')
-    if "edited_by" not in cols:
-        cur.execute('ALTER TABLE price_overrides ADD COLUMN edited_by TEXT')
-    if "edited_at" not in cols:
-        cur.execute("ALTER TABLE price_overrides ADD COLUMN edited_at TEXT DEFAULT (datetime('now'))")
-    conn.commit()
-    conn.close()
+    """Ensure price_overrides table exists with retry logic."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with get_db_connection(db_path, timeout=5.0) as conn:
+                cur = conn.cursor()
+                # Base table (if new DB)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS price_overrides (
+                        ItemCode TEXT PRIMARY KEY,
+                        SellingPriceOverride REAL,   -- used by DIP/RASALKHORE
+                        CostPriceOverride    REAL,   -- used by ALABAMA
+                        edited_by TEXT,
+                        edited_at TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                # If the table already existed without one of the columns, add it.
+                cur.execute("PRAGMA table_info(price_overrides)")
+                cols = {r[1] for r in cur.fetchall()}
+                if "SellingPriceOverride" not in cols:
+                    cur.execute('ALTER TABLE price_overrides ADD COLUMN SellingPriceOverride REAL')
+                if "CostPriceOverride" not in cols:
+                    cur.execute('ALTER TABLE price_overrides ADD COLUMN CostPriceOverride REAL')
+                if "edited_by" not in cols:
+                    cur.execute('ALTER TABLE price_overrides ADD COLUMN edited_by TEXT')
+                if "edited_at" not in cols:
+                    cur.execute("ALTER TABLE price_overrides ADD COLUMN edited_at TEXT DEFAULT (datetime('now'))")
+            break  # Success, exit retry loop
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))  # Exponential backoff
+                continue
+            else:
+                raise
 
 def ensure_stock_items_indexes(db_path: str):
     """
     Create indexes on stock_items table for faster searches.
     This significantly improves search query performance.
     """
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    
-    # Check if stock_items table exists
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
-    if not cur.fetchone():
-        conn.close()
-        return
-    
-    # Create indexes if they don't exist
-    indexes = [
-        ('idx_stock_items_itemcode', 'stock_items', '"ItemCode"'),
-        ('idx_stock_items_upc', 'stock_items', '"Upc Code"'),
-        ('idx_stock_items_description', 'stock_items', '"Description"'),
-        ('idx_stock_items_manufacturer', 'stock_items', '"Manufacturer Name"'),
-    ]
-    
-    for idx_name, table_name, column in indexes:
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            # Check if index already exists
-            cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name=?", (idx_name,))
-            if not cur.fetchone():
-                # Create index with IF NOT EXISTS equivalent (using try/except)
-                cur.execute(f'CREATE INDEX {idx_name} ON {table_name}({column})')
-                print(f"Created index: {idx_name}")
-        except sqlite3.Error as e:
-            # Index might already exist or other error
-            print(f"Index creation warning for {idx_name}: {e}")
-    
-    conn.commit()
-    conn.close()
+            with get_db_connection(db_path, timeout=5.0) as conn:
+                cur = conn.cursor()
+                
+                # Check if stock_items table exists
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+                if not cur.fetchone():
+                    return
+                
+                # Create indexes if they don't exist
+                indexes = [
+                    ('idx_stock_items_itemcode', 'stock_items', '"ItemCode"'),
+                    ('idx_stock_items_upc', 'stock_items', '"Upc Code"'),
+                    ('idx_stock_items_description', 'stock_items', '"Description"'),
+                    ('idx_stock_items_manufacturer', 'stock_items', '"Manufacturer Name"'),
+                ]
+                
+                for idx_name, table_name, column in indexes:
+                    try:
+                        # Check if index already exists
+                        cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name=?", (idx_name,))
+                        if not cur.fetchone():
+                            # Create index with IF NOT EXISTS equivalent (using try/except)
+                            cur.execute(f'CREATE INDEX {idx_name} ON {table_name}({column})')
+                            print(f"Created index: {idx_name}")
+                    except sqlite3.Error as e:
+                        # Index might already exist or other error
+                        print(f"Index creation warning for {idx_name}: {e}")
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))
+                continue
+            else:
+                raise
 
 def update_database(branch, df, keep_admin_prices=True):
     db_path = DB_PATHS[branch]
@@ -938,30 +1020,33 @@ def stock_page(branch):
 
         if query:
             db_path = DB_PATHS[branch]
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-
+            
             # make sure overrides table exists for JOINs
             ensure_override_table(db_path)
+            
+            # Use connection helper with retry logic
+            try:
+                with get_db_connection(db_path, timeout=10.0) as conn:
+                    cursor = conn.cursor()
 
-            # words for filtering
-            query_words = query.split()
+                    # words for filtering
+                    query_words = query.split()
 
-            # --- Build SELECT per-branch ---
-            if branch == "ALABAMA":
-                # ALABAMA shows all items from Junaid (DIP + RASALKHORE) with calculated Cost and Selling Price
-                # Attach both DIP and RASALKHORE databases
-                dip_db_path = os.path.abspath(DB_PATHS["DIP"])
-                ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
-                alabama_db_path = os.path.abspath(DB_PATHS["ALABAMA"])
-                cursor.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
-                cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
-                cursor.execute(f'ATTACH DATABASE "{alabama_db_path}" AS alabama')
-                
-                # Get Junaid cost price (prefer DIP, fallback to RASALKHORE)
-                # We'll calculate Alabama Cost and Selling Price in Python after fetching
-                # IMPORTANT: wrap UNION in a subquery so we can safely append search filters (SQLite limitation)
-                sql_query = """
+                    # --- Build SELECT per-branch ---
+                    if branch == "ALABAMA":
+                        # ALABAMA shows all items from Junaid (DIP + RASALKHORE) with calculated Cost and Selling Price
+                        # Attach both DIP and RASALKHORE databases
+                        dip_db_path = os.path.abspath(DB_PATHS["DIP"])
+                        ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+                        alabama_db_path = os.path.abspath(DB_PATHS["ALABAMA"])
+                        cursor.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
+                        cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
+                        cursor.execute(f'ATTACH DATABASE "{alabama_db_path}" AS alabama')
+                        
+                        # Get Junaid cost price (prefer DIP, fallback to RASALKHORE)
+                        # We'll calculate Alabama Cost and Selling Price in Python after fetching
+                        # IMPORTANT: wrap UNION in a subquery so we can safely append search filters (SQLite limitation)
+                        sql_query = """
                     SELECT
                         t.ItemCode            AS "ItemCode",
                         t.UpcCode             AS "Upc Code",
@@ -997,18 +1082,18 @@ def stock_page(branch):
                     ) t
                     WHERE
                 """
-                col_item = 't.ItemCode'
-                col_upc  = 't.UpcCode'
-                col_desc = 't.Description'
-                col_mfg  = 't.ManufacturerName'
-            else:
-                # Non-ALABAMA
-                if branch == "DIP":
-                    # Attach RAS DB to show RAS stock alongside DIP
-                    ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
-                    cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
+                        col_item = 't.ItemCode'
+                        col_upc  = 't.UpcCode'
+                        col_desc = 't.Description'
+                        col_mfg  = 't.ManufacturerName'
+                    else:
+                        # Non-ALABAMA
+                        if branch == "DIP":
+                            # Attach RAS DB to show RAS stock alongside DIP
+                            ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+                            cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
 
-                    sql_query = """
+                            sql_query = """
                         SELECT
                             si."ItemCode",               -- 0
                             si."Upc Code",               -- 1
@@ -1026,13 +1111,13 @@ def stock_page(branch):
                         LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
                         WHERE
                     """
-                    col_item = 'si."ItemCode"'
-                    col_upc  = 'si."Upc Code"'
-                    col_desc = 'si."Description"'
-                    col_mfg  = 'si."Manufacturer Name"'
-                else:
-                    # RASALKHORE page (or any other non-ALABAMA branch)
-                    sql_query = """
+                            col_item = 'si."ItemCode"'
+                            col_upc  = 'si."Upc Code"'
+                            col_desc = 'si."Description"'
+                            col_mfg  = 'si."Manufacturer Name"'
+                        else:
+                            # RASALKHORE page (or any other non-ALABAMA branch)
+                            sql_query = """
                         SELECT
                             si."ItemCode",
                             si."Upc Code",
@@ -1043,143 +1128,147 @@ def stock_page(branch):
                             si."Free Stock",
                             COALESCE(po.SellingPriceOverride, si."Selling Price") AS "Selling Price",
                             si."CostPrice"
-                        FROM stock_items si
-                        LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-                        WHERE
-                    """
-                    col_item = 'si."ItemCode"'
-                    col_upc  = 'si."Upc Code"'
-                    col_desc = 'si."Description"'
-                    col_mfg  = 'si."Manufacturer Name"'
+                                FROM stock_items si
+                                LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                                WHERE
+                            """
+                            col_item = 'si."ItemCode"'
+                            col_upc  = 'si."Upc Code"'
+                            col_desc = 'si."Description"'
+                            col_mfg  = 'si."Manufacturer Name"'
 
-            # --- WHERE conditions (shared) ---
-            conditions = []
-            params = []
-            for w in query_words:
-                like = f"%{w}%"
-                conditions.append(
-                    f"""(
-                        LOWER({col_item}) LIKE ? OR
-                        LOWER({col_upc})  LIKE ? OR
-                        LOWER({col_desc}) LIKE ? OR
-                        LOWER({col_mfg})  LIKE ?
-                    )"""
-                )
-                params.extend([like, like, like, like])
-
-            sql_query += " AND ".join(conditions)
-
-            # Extra filters
-            if branch != "ALABAMA" and hide_zero_stock:
-                # Changed 0 to 10, and added CAST to fix number comparison
-                sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
-            if branch == "ALABAMA" and hide_zero_cost:
-                sql_query += ' AND CAST("JunaidCost" AS REAL) > 0'
-
-            # --- Execute ---
-            cursor.execute(sql_query, params)
-            results = cursor.fetchall()
-
-            # If ALABAMA page, calculate Cost and Selling Price from Junaid data
-            if branch == "ALABAMA":
-                # Load Alabama margins
-                alabama_db = DB_PATHS["ALABAMA"]
-                ensure_alabama_margins_table(alabama_db)
-                alabama_conn = sqlite3.connect(alabama_db)
-                alabama_cur = alabama_conn.cursor()
-                alabama_cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent FROM alabama_margins")
-                alabama_margins_map = {}
-                default_cost_margin = 10.0
-                default_brand_margin = 15.0
-                for row in alabama_cur.fetchall():
-                    if row[0] == "__DEFAULT__":
-                        default_cost_margin = row[1]
-                        default_brand_margin = row[2]
-                    else:
-                        alabama_margins_map[row[0].lower()] = (row[1], row[2])
-                alabama_conn.close()
-                
-                # Process results: Calculate Alabama Cost and Selling Price
-                # Results format: (ItemCode, Upc Code, Description, Manufacturer Name, JunaidCost, CostOverride)
-                processed_results = []
-                for row in results:
-                    item_code, upc_code, description, manufacturer, junaid_cost, cost_override = row
-                    
-                    # Use override if exists, otherwise use Junaid cost
-                    base_cost = float(cost_override) if cost_override is not None else float(junaid_cost or 0)
-                    
-                    # Get margins for this manufacturer (case-insensitive)
-                    manufacturer_lower = (manufacturer or "").lower()
-                    if manufacturer_lower in alabama_margins_map:
-                        cost_margin, brand_margin = alabama_margins_map[manufacturer_lower]
-                    else:
-                        cost_margin = default_cost_margin
-                        brand_margin = default_brand_margin
-                    
-                    # Calculate Alabama Cost = Junaid Cost * (1 + cost_margin/100)
-                    alabama_cost = round(base_cost * (1 + cost_margin / 100), 2) if base_cost > 0 else 0.0
-                    
-                    # Calculate Alabama Selling Price = Alabama Cost / (1 - brand_margin/100)
-                    margin_divisor = 1 - (brand_margin / 100)
-                    alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
-                    
-                    # Return: ItemCode, Upc Code, Description, Manufacturer Name, CostPrice, Selling Price
-                    processed_results.append((
-                        item_code,
-                        upc_code or "",
-                        description or "",
-                        manufacturer or "",
-                        alabama_cost,
-                        alabama_selling_price
-                    ))
-                
-                results = processed_results
-                
-                # Detach databases
-                try:
-                    cursor.execute("DETACH DATABASE dip")
-                    cursor.execute("DETACH DATABASE ras")
-                    cursor.execute("DETACH DATABASE alabama")
-                except:
-                    pass
-
-            # If DIP page, append Sold Stock as last column (index 10)
-            elif branch == "DIP":
-                if session.get("username"):
-                    # OPTIMIZATION: Only fetch sold data if we have results (don't block on empty search)
-                    # Also, fetch sold data in background/async if possible, or cache it
-                    sold_map = {}
-                    if results and len(results) > 0:
-                        try:
-                            # Only fetch sold data for the matched items (not all items)
-                            # This reduces API call time significantly
-                            sold_map = fetch_sold_breakdown_map()
-                        except Exception as e:
-                            print(f"Sold breakdown API error (non-blocking): {e}")
-                            sold_map = {}
-
-                    def _g(code, key):
-                        return (sold_map.get(code, {}) or {}).get(key, 0.0)
-
-                    results = [
-                        row + (
-                            _g(str(row[0]).strip(), "total"),
-                            _g(str(row[0]).strip(), "ho"),
-                            _g(str(row[0]).strip(), "others"),
-                            _g(str(row[0]).strip(), "total_2025"),
-                            _g(str(row[0]).strip(), "total_2026"),
+                    # --- WHERE conditions (shared) ---
+                    conditions = []
+                    params = []
+                    for w in query_words:
+                        like = f"%{w}%"
+                        conditions.append(
+                            f"""(
+                                LOWER({col_item}) LIKE ? OR
+                                LOWER({col_upc})  LIKE ? OR
+                                LOWER({col_desc}) LIKE ? OR
+                                LOWER({col_mfg})  LIKE ?
+                            )"""
                         )
-                        for row in results
-                    ]
+                        params.extend([like, like, like, like])
 
-            # Detach attached DB (only if we attached it)
-            if branch == "DIP":
-                try:
-                    cursor.execute("DETACH DATABASE ras")
-                except Exception:
-                    pass
+                    sql_query += " AND ".join(conditions)
 
-            conn.close()
+                    # Extra filters
+                    if branch != "ALABAMA" and hide_zero_stock:
+                        # Changed 0 to 10, and added CAST to fix number comparison
+                        sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
+                    if branch == "ALABAMA" and hide_zero_cost:
+                        sql_query += ' AND CAST("JunaidCost" AS REAL) > 0'
+
+                    # --- Execute ---
+                    cursor.execute(sql_query, params)
+                    results = cursor.fetchall()
+
+                    # If ALABAMA page, calculate Cost and Selling Price from Junaid data
+                    if branch == "ALABAMA":
+                        # Load Alabama margins
+                        alabama_db = DB_PATHS["ALABAMA"]
+                        ensure_alabama_margins_table(alabama_db)
+                        try:
+                            with get_db_connection(alabama_db, timeout=10.0) as alabama_conn:
+                                alabama_cur = alabama_conn.cursor()
+                                alabama_cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent FROM alabama_margins")
+                                alabama_margins_map = {}
+                                default_cost_margin = 10.0
+                                default_brand_margin = 15.0
+                                for row in alabama_cur.fetchall():
+                                    if row[0] == "__DEFAULT__":
+                                        default_cost_margin = row[1]
+                                        default_brand_margin = row[2]
+                                    else:
+                                        alabama_margins_map[row[0].lower()] = (row[1], row[2])
+                        except sqlite3.OperationalError:
+                            # If locked, use defaults
+                            alabama_margins_map = {}
+                            default_cost_margin = 10.0
+                            default_brand_margin = 15.0
+                        
+                        # Process results: Calculate Alabama Cost and Selling Price
+                        # Results format: (ItemCode, Upc Code, Description, Manufacturer Name, JunaidCost, CostOverride)
+                        processed_results = []
+                        for row in results:
+                            item_code, upc_code, description, manufacturer, junaid_cost, cost_override = row
+                            
+                            # Use override if exists, otherwise use Junaid cost
+                            base_cost = float(cost_override) if cost_override is not None else float(junaid_cost or 0)
+                            
+                            # Get margins for this manufacturer (case-insensitive)
+                            manufacturer_lower = (manufacturer or "").lower()
+                            if manufacturer_lower in alabama_margins_map:
+                                cost_margin, brand_margin = alabama_margins_map[manufacturer_lower]
+                            else:
+                                cost_margin = default_cost_margin
+                                brand_margin = default_brand_margin
+                            
+                            # Calculate Alabama Cost = Junaid Cost * (1 + cost_margin/100)
+                            alabama_cost = round(base_cost * (1 + cost_margin / 100), 2) if base_cost > 0 else 0.0
+                            
+                            # Calculate Alabama Selling Price = Alabama Cost / (1 - brand_margin/100)
+                            margin_divisor = 1 - (brand_margin / 100)
+                            alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+                            
+                            # Return: ItemCode, Upc Code, Description, Manufacturer Name, CostPrice, Selling Price
+                            processed_results.append((
+                                item_code,
+                                upc_code or "",
+                                description or "",
+                                manufacturer or "",
+                                alabama_cost,
+                                alabama_selling_price
+                            ))
+                        
+                        results = processed_results
+                        
+                        # Detach databases
+                        try:
+                            cursor.execute("DETACH DATABASE dip")
+                            cursor.execute("DETACH DATABASE ras")
+                            cursor.execute("DETACH DATABASE alabama")
+                        except:
+                            pass
+
+                    # If DIP page, append Sold Stock as last column (index 10)
+                    elif branch == "DIP":
+                        if session.get("username"):
+                            # OPTIMIZATION: Only fetch sold data if we have results (don't block on empty search)
+                            sold_map = {}
+                            if results and len(results) > 0:
+                                try:
+                                    sold_map = fetch_sold_breakdown_map()
+                                except Exception as e:
+                                    print(f"Sold breakdown API error (non-blocking): {e}")
+                                    sold_map = {}
+
+                            def _g(code, key):
+                                return (sold_map.get(code, {}) or {}).get(key, 0.0)
+
+                            results = [
+                                row + (
+                                    _g(str(row[0]).strip(), "total"),
+                                    _g(str(row[0]).strip(), "ho"),
+                                    _g(str(row[0]).strip(), "others"),
+                                    _g(str(row[0]).strip(), "total_2025"),
+                                    _g(str(row[0]).strip(), "total_2026"),
+                                )
+                                for row in results
+                            ]
+
+                    # Detach attached DB (only if we attached it)
+                    if branch == "DIP":
+                        try:
+                            cursor.execute("DETACH DATABASE ras")
+                        except Exception:
+                            pass
+            except sqlite3.OperationalError as e:
+                # If database is locked, return empty results with error message
+                print(f"Database locked in stock_page: {e}")
+                results = []
     # total_value = None
     # if "username" in session and branch != "ALABAMA":
     #     db_path = DB_PATHS[branch]
@@ -1770,25 +1859,25 @@ def _process_sync_in_background(data):
         if branch == "DIP":
             ensure_retail_override_table(db_path)
         
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        
         # Get existing admin price overrides
         existing_overrides = {}
         existing_retail_overrides = {}
         
-        if data.get("keep_admin_prices", True):
-            cur.execute("SELECT ItemCode, SellingPriceOverride FROM price_overrides WHERE SellingPriceOverride IS NOT NULL")
-            for row in cur.fetchall():
-                existing_overrides[row[0]] = row[1]
+        with get_db_connection(db_path, timeout=30.0) as conn:
+            cur = conn.cursor()
             
-            if branch == "DIP":
-                cur.execute("SELECT ItemCode, Branch, SellingPriceOverride FROM retail_overrides WHERE SellingPriceOverride IS NOT NULL")
+            if data.get("keep_admin_prices", True):
+                cur.execute("SELECT ItemCode, SellingPriceOverride FROM price_overrides WHERE SellingPriceOverride IS NOT NULL")
                 for row in cur.fetchall():
-                    item_code, retail_branch, price = row
-                    if item_code not in existing_retail_overrides:
-                        existing_retail_overrides[item_code] = {}
-                    existing_retail_overrides[item_code][retail_branch] = price
+                    existing_overrides[row[0]] = row[1]
+                
+                if branch == "DIP":
+                    cur.execute("SELECT ItemCode, Branch, SellingPriceOverride FROM retail_overrides WHERE SellingPriceOverride IS NOT NULL")
+                    for row in cur.fetchall():
+                        item_code, retail_branch, price = row
+                        if item_code not in existing_retail_overrides:
+                            existing_retail_overrides[item_code] = {}
+                        existing_retail_overrides[item_code][retail_branch] = price
         
         # Load brand margins
         dip_db = DB_PATHS["DIP"]
@@ -1797,18 +1886,17 @@ def _process_sync_in_background(data):
         brand_margins_lower = {}
         default_margin = DEFAULT_MARGIN_PERCENT
         
-        margin_conn = sqlite3.connect(dip_db)
-        margin_cur = margin_conn.cursor()
-        margin_cur.execute("SELECT brand_name, margin_percent FROM brand_margins")
-        for row in margin_cur.fetchall():
-            if row[0] == "__DEFAULT__":
-                default_margin = row[1]
-            else:
-                brand_name = row[0]
-                margin = row[1]
-                brand_margins[brand_name] = margin
-                brand_margins_lower[brand_name.lower()] = (brand_name, margin)
-        margin_conn.close()
+        with get_db_connection(dip_db, timeout=10.0) as margin_conn:
+            margin_cur = margin_conn.cursor()
+            margin_cur.execute("SELECT brand_name, margin_percent FROM brand_margins")
+            for row in margin_cur.fetchall():
+                if row[0] == "__DEFAULT__":
+                    default_margin = row[1]
+                else:
+                    brand_name = row[0]
+                    margin = row[1]
+                    brand_margins[brand_name] = margin
+                    brand_margins_lower[brand_name.lower()] = (brand_name, margin)
         
         def get_brand_margin_case_insensitive(manufacturer_name):
             if not manufacturer_name:
@@ -1826,18 +1914,20 @@ def _process_sync_in_background(data):
         existing_items = {}
         if branch == "DIP":
             try:
-                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
-                if cur.fetchone():
-                    cur.execute('SELECT "ItemCode", "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS", "Stock Quantity", "Selling Price", "CostPrice", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code", "Free Stock" FROM stock_items')
-                    for row in cur.fetchall():
-                        existing_items[row[0]] = {
-                            "AJMAN": row[1] or 0, "NAH": row[2] or 0, "DEIRA": row[3] or 0,
-                            "DEIRA2": row[4] or 0, "ABUDHABI": row[5] or 0, "QUSAIS": row[6] or 0,
-                            "Stock Quantity": row[7] or 0, "Selling Price": row[8] or 0,
-                            "CostPrice": row[9] or 0, "Upc Code": row[10] or "",
-                            "Description": row[11] or "", "Manufacturer Name": row[12] or "",
-                            "Warehouse Code": row[13] or "", "Free Stock": row[14] or 0,
-                        }
+                with get_db_connection(db_path, timeout=30.0) as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+                    if cur.fetchone():
+                        cur.execute('SELECT "ItemCode", "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS", "Stock Quantity", "Selling Price", "CostPrice", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code", "Free Stock" FROM stock_items')
+                        for row in cur.fetchall():
+                            existing_items[row[0]] = {
+                                "AJMAN": row[1] or 0, "NAH": row[2] or 0, "DEIRA": row[3] or 0,
+                                "DEIRA2": row[4] or 0, "ABUDHABI": row[5] or 0, "QUSAIS": row[6] or 0,
+                                "Stock Quantity": row[7] or 0, "Selling Price": row[8] or 0,
+                                "CostPrice": row[9] or 0, "Upc Code": row[10] or "",
+                                "Description": row[11] or "", "Manufacturer Name": row[12] or "",
+                                "Warehouse Code": row[13] or "", "Free Stock": row[14] or 0,
+                            }
             except sqlite3.Error:
                 existing_items = {}
         
@@ -1919,41 +2009,41 @@ def _process_sync_in_background(data):
         
         # Update database incrementally
         if items_to_insert:
-            if branch == "DIP":
-                insert_sql = """
-                    INSERT OR REPLACE INTO stock_items (
-                        "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
-                        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
-                        "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS"
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                for item in items_to_insert:
-                    cur.execute(insert_sql, (
-                        item["ItemCode"], item["Upc Code"], item["Description"], 
-                        item["Manufacturer Name"], item["Warehouse Code"],
-                        item["Stock Quantity"], item["Free Stock"], 
-                        item["Selling Price"], item["CostPrice"],
-                        item["AJMAN"], item["NAH"], item["DEIRA"], 
-                        item["DEIRA2"], item["ABUDHABI"], item["QUSAIS"]
-                    ))
-            else:
-                insert_sql = """
-                    INSERT OR REPLACE INTO stock_items (
-                        "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
-                        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                for item in items_to_insert:
-                    cur.execute(insert_sql, (
-                        item["ItemCode"], item["Upc Code"], item["Description"], 
-                        item["Manufacturer Name"], item["Warehouse Code"],
-                        item["Stock Quantity"], item["Free Stock"], 
-                        item["Selling Price"], item["CostPrice"]
-                    ))
+            with get_db_connection(db_path, timeout=60.0) as conn:
+                cur = conn.cursor()
+                if branch == "DIP":
+                    insert_sql = """
+                        INSERT OR REPLACE INTO stock_items (
+                            "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
+                            "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+                            "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS"
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                    for item in items_to_insert:
+                        cur.execute(insert_sql, (
+                            item["ItemCode"], item["Upc Code"], item["Description"], 
+                            item["Manufacturer Name"], item["Warehouse Code"],
+                            item["Stock Quantity"], item["Free Stock"], 
+                            item["Selling Price"], item["CostPrice"],
+                            item["AJMAN"], item["NAH"], item["DEIRA"], 
+                            item["DEIRA2"], item["ABUDHABI"], item["QUSAIS"]
+                        ))
+                else:
+                    insert_sql = """
+                        INSERT OR REPLACE INTO stock_items (
+                            "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
+                            "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                    for item in items_to_insert:
+                        cur.execute(insert_sql, (
+                            item["ItemCode"], item["Upc Code"], item["Description"], 
+                            item["Manufacturer Name"], item["Warehouse Code"],
+                            item["Stock Quantity"], item["Free Stock"], 
+                            item["Selling Price"], item["CostPrice"]
+                        ))
         
         ensure_stock_items_indexes(db_path)
-        conn.commit()
-        conn.close()
         
         # Broadcast SSE update
         try:
@@ -3000,12 +3090,14 @@ def ensure_cost_price_overrides_table(db_path: str):
 def get_cost_price_overrides(db_path: str) -> dict:
     """Get all cost price overrides as a dict {ItemCode: CostPrice}."""
     ensure_cost_price_overrides_table(db_path)
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("SELECT ItemCode, CostPrice FROM cost_price_overrides")
-    overrides = {row[0]: row[1] for row in cur.fetchall()}
-    conn.close()
-    return overrides
+    try:
+        with get_db_connection(db_path, timeout=10.0) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT ItemCode, CostPrice FROM cost_price_overrides")
+            overrides = {row[0]: row[1] for row in cur.fetchall()}
+        return overrides
+    except sqlite3.OperationalError:
+        return {}  # Return empty dict if database is locked
 
 
 @app.route("/admin/cost-price-overrides", methods=["GET", "POST"])
