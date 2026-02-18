@@ -325,7 +325,7 @@ def fetch_sold_breakdown_map():
     """
     Returns: { "ITEMCODE": {"total": float, "ho": float, "others": float, "total_2025": float, "total_2026": float}, ... }
     Pulls from your new /api/items/unique-qty endpoint.
-    OPTIMIZATION: Cached for 5 minutes to reduce API calls.
+    OPTIMIZATION: Cached for 5 minutes to reduce API calls and prevent timeouts.
     """
     global _sold_map_cache, _sold_map_cache_time
     
@@ -337,8 +337,8 @@ def fetch_sold_breakdown_map():
     
     url = "https://do.junaidworld.com/api/items/unique-qty"
     try:
-        # OPTIMIZATION: Reduced timeout from 5s to 3s, fail fast
-        r = requests.get(url, timeout=3)
+        # OPTIMIZATION: Reduced timeout to 2s, fail fast to prevent blocking
+        r = requests.get(url, timeout=2)
         r.raise_for_status()
         data = r.json() or {}
         out = {}
@@ -360,6 +360,10 @@ def fetch_sold_breakdown_map():
         _sold_map_cache = out
         _sold_map_cache_time = current_time
         return out
+    except requests.Timeout:
+        print("Sold breakdown API timeout (using cache if available)")
+        # Return cached data even if expired, better than nothing
+        return _sold_map_cache if _sold_map_cache else {}
     except Exception as e:
         print(f"Sold breakdown API error (using cache if available): {e}")
         # Return cached data even if expired, better than nothing
@@ -484,6 +488,9 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
                     )
                 '''
             cur.execute(columns_sql)
+            conn.commit()
+            # Create indexes after table creation
+            ensure_stock_items_indexes(db_path)
         
         # Get existing items to merge with (for DIP, we need to preserve other columns)
         existing_items = {}
@@ -582,12 +589,41 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             items_to_insert.append(row_data)
             items_updated += 1
         
-        # Replace stock_items table with new data
+        # OPTIMIZATION: Use incremental updates instead of table replacement
+        # This prevents database locks and improves performance
         if items_to_insert:
-            # Convert to DataFrame for easier insertion
-            import pandas as pd
-            df = pd.DataFrame(items_to_insert)
-            df.to_sql("stock_items", conn, if_exists="replace", index=False)
+            # Use INSERT OR REPLACE for incremental updates (much faster than table replacement)
+            if branch == "DIP":
+                insert_sql = """
+                    INSERT OR REPLACE INTO stock_items (
+                        "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
+                        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+                        "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS"
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                for item in items_to_insert:
+                    cur.execute(insert_sql, (
+                        item["ItemCode"], item["Upc Code"], item["Description"], 
+                        item["Manufacturer Name"], item["Warehouse Code"],
+                        item["Stock Quantity"], item["Free Stock"], 
+                        item["Selling Price"], item["CostPrice"],
+                        item["AJMAN"], item["NAH"], item["DEIRA"], 
+                        item["DEIRA2"], item["ABUDHABI"], item["QUSAIS"]
+                    ))
+            else:
+                insert_sql = """
+                    INSERT OR REPLACE INTO stock_items (
+                        "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
+                        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                for item in items_to_insert:
+                    cur.execute(insert_sql, (
+                        item["ItemCode"], item["Upc Code"], item["Description"], 
+                        item["Manufacturer Name"], item["Warehouse Code"],
+                        item["Stock Quantity"], item["Free Stock"], 
+                        item["Selling Price"], item["CostPrice"]
+                    ))
         
         conn.commit()
         conn.close()
@@ -804,6 +840,43 @@ def ensure_override_table(db_path: str):
         cur.execute('ALTER TABLE price_overrides ADD COLUMN edited_by TEXT')
     if "edited_at" not in cols:
         cur.execute("ALTER TABLE price_overrides ADD COLUMN edited_at TEXT DEFAULT (datetime('now'))")
+    conn.commit()
+    conn.close()
+
+def ensure_stock_items_indexes(db_path: str):
+    """
+    Create indexes on stock_items table for faster searches.
+    This significantly improves search query performance.
+    """
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    
+    # Check if stock_items table exists
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+    if not cur.fetchone():
+        conn.close()
+        return
+    
+    # Create indexes if they don't exist
+    indexes = [
+        ('idx_stock_items_itemcode', 'stock_items', '"ItemCode"'),
+        ('idx_stock_items_upc', 'stock_items', '"Upc Code"'),
+        ('idx_stock_items_description', 'stock_items', '"Description"'),
+        ('idx_stock_items_manufacturer', 'stock_items', '"Manufacturer Name"'),
+    ]
+    
+    for idx_name, table_name, column in indexes:
+        try:
+            # Check if index already exists
+            cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name=?", (idx_name,))
+            if not cur.fetchone():
+                # Create index with IF NOT EXISTS equivalent (using try/except)
+                cur.execute(f'CREATE INDEX {idx_name} ON {table_name}({column})')
+                print(f"Created index: {idx_name}")
+        except sqlite3.Error as e:
+            # Index might already exist or other error
+            print(f"Index creation warning for {idx_name}: {e}")
+    
     conn.commit()
     conn.close()
 
@@ -1673,11 +1746,241 @@ def update_min_price():
 # IMPORTANT: This must match VPS_API_KEY in sync_stock_pc.py
 VPS_API_KEY = "rLEkUZQiljwQWPS5ZJ8m6zawpsr9QUvRqYka-hj7fBw"  # For testing. Change to secure random key for production
 
+# Background sync processing
+_sync_lock = threading.Lock()
+_sync_in_progress = {}
+
+def _process_sync_in_background(data):
+    """Process sync in background thread to avoid blocking the request."""
+    warehouse_code = data.get("warehouse_code", "").strip()
+    branch = WAREHOUSE_MAPPING.get(warehouse_code, {}).get("branch", "UNKNOWN")
+    
+    try:
+        # Mark sync as in progress
+        with _sync_lock:
+            _sync_in_progress[warehouse_code] = True
+        
+        # Process the sync (same logic as before but extracted)
+        mapping = WAREHOUSE_MAPPING[warehouse_code]
+        branch = mapping["branch"]
+        stock_column = mapping["column"]
+        
+        db_path = DB_PATHS[branch]
+        ensure_override_table(db_path)
+        if branch == "DIP":
+            ensure_retail_override_table(db_path)
+        
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        
+        # Get existing admin price overrides
+        existing_overrides = {}
+        existing_retail_overrides = {}
+        
+        if data.get("keep_admin_prices", True):
+            cur.execute("SELECT ItemCode, SellingPriceOverride FROM price_overrides WHERE SellingPriceOverride IS NOT NULL")
+            for row in cur.fetchall():
+                existing_overrides[row[0]] = row[1]
+            
+            if branch == "DIP":
+                cur.execute("SELECT ItemCode, Branch, SellingPriceOverride FROM retail_overrides WHERE SellingPriceOverride IS NOT NULL")
+                for row in cur.fetchall():
+                    item_code, retail_branch, price = row
+                    if item_code not in existing_retail_overrides:
+                        existing_retail_overrides[item_code] = {}
+                    existing_retail_overrides[item_code][retail_branch] = price
+        
+        # Load brand margins
+        dip_db = DB_PATHS["DIP"]
+        ensure_brand_margins_table(dip_db)
+        brand_margins = {}
+        brand_margins_lower = {}
+        default_margin = DEFAULT_MARGIN_PERCENT
+        
+        margin_conn = sqlite3.connect(dip_db)
+        margin_cur = margin_conn.cursor()
+        margin_cur.execute("SELECT brand_name, margin_percent FROM brand_margins")
+        for row in margin_cur.fetchall():
+            if row[0] == "__DEFAULT__":
+                default_margin = row[1]
+            else:
+                brand_name = row[0]
+                margin = row[1]
+                brand_margins[brand_name] = margin
+                brand_margins_lower[brand_name.lower()] = (brand_name, margin)
+        margin_conn.close()
+        
+        def get_brand_margin_case_insensitive(manufacturer_name):
+            if not manufacturer_name:
+                return default_margin
+            if manufacturer_name in brand_margins:
+                return brand_margins[manufacturer_name]
+            manufacturer_lower = manufacturer_name.lower()
+            if manufacturer_lower in brand_margins_lower:
+                return brand_margins_lower[manufacturer_lower][1]
+            return default_margin
+        
+        cost_price_overrides = get_cost_price_overrides(dip_db)
+        
+        # Get existing items for DIP branch
+        existing_items = {}
+        if branch == "DIP":
+            try:
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+                if cur.fetchone():
+                    cur.execute('SELECT "ItemCode", "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS", "Stock Quantity", "Selling Price", "CostPrice", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code", "Free Stock" FROM stock_items')
+                    for row in cur.fetchall():
+                        existing_items[row[0]] = {
+                            "AJMAN": row[1] or 0, "NAH": row[2] or 0, "DEIRA": row[3] or 0,
+                            "DEIRA2": row[4] or 0, "ABUDHABI": row[5] or 0, "QUSAIS": row[6] or 0,
+                            "Stock Quantity": row[7] or 0, "Selling Price": row[8] or 0,
+                            "CostPrice": row[9] or 0, "Upc Code": row[10] or "",
+                            "Description": row[11] or "", "Manufacturer Name": row[12] or "",
+                            "Warehouse Code": row[13] or "", "Free Stock": row[14] or 0,
+                        }
+            except sqlite3.Error:
+                existing_items = {}
+        
+        items = data.get("items", [])
+        items_to_insert = []
+        
+        for item in items:
+            item_code = str(item.get("ItemCode", "")).strip()
+            if not item_code:
+                continue
+            
+            upc_code = str(item.get("U_UPCCODE", "")).strip()
+            description = str(item.get("ItemName", "")).strip()
+            manufacturer = str(item.get("FirmName", "")).strip()
+            whs_code = str(item.get("WhsCode", "")).strip()
+            on_hand = _to_float(item.get("OnHand", 0), 0.0)
+            avg_price = _to_float(item.get("AvgPrice", 0), 0.0)
+            
+            cost_for_margin = cost_price_overrides.get(item_code, avg_price)
+            
+            if data.get("keep_admin_prices", True) and item_code in existing_overrides:
+                selling_price = existing_overrides[item_code]
+            elif stock_column == "Stock Quantity":
+                margin_percent = get_brand_margin_case_insensitive(manufacturer)
+                margin_divisor = 1 - (margin_percent / 100)
+                if cost_for_margin > 0 and margin_divisor > 0:
+                    selling_price = round(cost_for_margin / margin_divisor, 2)
+                else:
+                    selling_price = 0.0
+            else:
+                selling_price = 0
+            
+            if branch == "DIP":
+                existing = existing_items.get(item_code, {})
+                final_upc = upc_code if upc_code else existing.get("Upc Code", "")
+                final_description = description if description else existing.get("Description", "")
+                final_manufacturer = manufacturer if manufacturer else existing.get("Manufacturer Name", "")
+                if stock_column == "Stock Quantity":
+                    final_whs_code = whs_code if whs_code else existing.get("Warehouse Code", "01")
+                else:
+                    final_whs_code = existing.get("Warehouse Code", "01")
+                
+                if item_code in cost_price_overrides:
+                    final_cost_price = round(cost_price_overrides[item_code], 2)
+                elif stock_column == "Stock Quantity":
+                    final_cost_price = round(avg_price, 2) if avg_price > 0 else round(float(existing.get("CostPrice", 0) or 0), 2)
+                else:
+                    existing_cost = existing.get("CostPrice", 0) or 0
+                    final_cost_price = round(float(existing_cost), 2)
+                
+                row_data = {
+                    "ItemCode": item_code, "Upc Code": final_upc, "Description": final_description,
+                    "Manufacturer Name": final_manufacturer, "Warehouse Code": final_whs_code,
+                    "Stock Quantity": on_hand if stock_column == "Stock Quantity" else float(existing.get("Stock Quantity", 0) or 0),
+                    "Free Stock": float(existing.get("Free Stock", 0) or 0),
+                    "Selling Price": round(selling_price, 2) if selling_price > 0 else round(float(existing.get("Selling Price", 0) or 0), 2),
+                    "CostPrice": final_cost_price,
+                    "AJMAN": on_hand if stock_column == "AJMAN" else float(existing.get("AJMAN", 0) or 0),
+                    "NAH": on_hand if stock_column == "NAH" else float(existing.get("NAH", 0) or 0),
+                    "DEIRA": on_hand if stock_column == "DEIRA" else float(existing.get("DEIRA", 0) or 0),
+                    "DEIRA2": on_hand if stock_column == "DEIRA2" else float(existing.get("DEIRA2", 0) or 0),
+                    "ABUDHABI": on_hand if stock_column == "ABUDHABI" else float(existing.get("ABUDHABI", 0) or 0),
+                    "QUSAIS": on_hand if stock_column == "QUSAIS" else float(existing.get("QUSAIS", 0) or 0),
+                }
+            else:
+                if item_code in cost_price_overrides:
+                    ras_cost_price = round(cost_price_overrides[item_code], 2)
+                else:
+                    ras_cost_price = round(avg_price, 2)
+                
+                row_data = {
+                    "ItemCode": item_code, "Upc Code": upc_code, "Description": description,
+                    "Manufacturer Name": manufacturer, "Warehouse Code": whs_code,
+                    "Stock Quantity": on_hand, "Free Stock": 0,
+                    "Selling Price": round(selling_price, 2), "CostPrice": ras_cost_price,
+                }
+            
+            items_to_insert.append(row_data)
+        
+        # Update database incrementally
+        if items_to_insert:
+            if branch == "DIP":
+                insert_sql = """
+                    INSERT OR REPLACE INTO stock_items (
+                        "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
+                        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+                        "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS"
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                for item in items_to_insert:
+                    cur.execute(insert_sql, (
+                        item["ItemCode"], item["Upc Code"], item["Description"], 
+                        item["Manufacturer Name"], item["Warehouse Code"],
+                        item["Stock Quantity"], item["Free Stock"], 
+                        item["Selling Price"], item["CostPrice"],
+                        item["AJMAN"], item["NAH"], item["DEIRA"], 
+                        item["DEIRA2"], item["ABUDHABI"], item["QUSAIS"]
+                    ))
+            else:
+                insert_sql = """
+                    INSERT OR REPLACE INTO stock_items (
+                        "ItemCode", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code",
+                        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                for item in items_to_insert:
+                    cur.execute(insert_sql, (
+                        item["ItemCode"], item["Upc Code"], item["Description"], 
+                        item["Manufacturer Name"], item["Warehouse Code"],
+                        item["Stock Quantity"], item["Free Stock"], 
+                        item["Selling Price"], item["CostPrice"]
+                    ))
+        
+        ensure_stock_items_indexes(db_path)
+        conn.commit()
+        conn.close()
+        
+        # Broadcast SSE update
+        try:
+            broadcast_sse_update(branch, {
+                "type": "sync_complete",
+                "warehouse_code": warehouse_code,
+                "branch": branch,
+                "items_updated": len(items_to_insert),
+                "timestamp": datetime.now().isoformat()
+            })
+        except Exception:
+            pass
+        
+    except Exception as e:
+        print(f"Background sync error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        with _sync_lock:
+            _sync_in_progress.pop(warehouse_code, None)
+
 @app.route("/api/sync-stock", methods=["POST"])
 def api_sync_stock():
     """
     API endpoint for PC sync script to send stock data to VPS.
     Receives data from PC and updates VPS databases.
+    OPTIMIZATION: Returns immediately and processes sync in background thread.
     """
     try:
         data = request.get_json(silent=True)
@@ -1691,7 +1994,6 @@ def api_sync_stock():
         
         warehouse_code = data.get("warehouse_code", "").strip()
         items = data.get("items", [])
-        keep_admin_prices = data.get("keep_admin_prices", True)
         
         if not warehouse_code or warehouse_code not in WAREHOUSE_MAPPING:
             return jsonify(success=False, error=f"Invalid warehouse code: {warehouse_code}"), 400
@@ -1699,247 +2001,23 @@ def api_sync_stock():
         if not isinstance(items, list):
             return jsonify(success=False, error="Items must be a list"), 400
         
-        mapping = WAREHOUSE_MAPPING[warehouse_code]
-        branch = mapping["branch"]
-        stock_column = mapping["column"]
+        # Check if sync is already in progress for this warehouse
+        with _sync_lock:
+            if warehouse_code in _sync_in_progress:
+                return jsonify(success=False, error=f"Sync already in progress for warehouse {warehouse_code}"), 409
         
-        # Get database path
-        db_path = DB_PATHS[branch]
-        ensure_override_table(db_path)
-        if branch == "DIP":
-            ensure_retail_override_table(db_path)
+        # Start background processing
+        thread = threading.Thread(target=_process_sync_in_background, args=(data,))
+        thread.daemon = True
+        thread.start()
         
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        
-        # Get existing admin price overrides
-        existing_overrides = {}
-        existing_retail_overrides = {}
-        
-        if keep_admin_prices:
-            cur.execute("SELECT ItemCode, SellingPriceOverride FROM price_overrides WHERE SellingPriceOverride IS NOT NULL")
-            for row in cur.fetchall():
-                existing_overrides[row[0]] = row[1]
-            
-            if branch == "DIP":
-                cur.execute("SELECT ItemCode, Branch, SellingPriceOverride FROM retail_overrides WHERE SellingPriceOverride IS NOT NULL")
-                for row in cur.fetchall():
-                    item_code, retail_branch, price = row
-                    if item_code not in existing_retail_overrides:
-                        existing_retail_overrides[item_code] = {}
-                    existing_retail_overrides[item_code][retail_branch] = price
-        
-        # Load brand margins for calculating selling prices (always from DIP DB)
-        dip_db = DB_PATHS["DIP"]
-        ensure_brand_margins_table(dip_db)
-        brand_margins = {}  # Case-sensitive lookup: {brand_name: margin}
-        brand_margins_lower = {}  # Case-insensitive lookup: {brand_name.lower(): (original_name, margin)}
-        default_margin = DEFAULT_MARGIN_PERCENT
-        
-        # Load margins from DIP DB (central margin storage)
-        margin_conn = sqlite3.connect(dip_db)
-        margin_cur = margin_conn.cursor()
-        margin_cur.execute("SELECT brand_name, margin_percent FROM brand_margins")
-        for row in margin_cur.fetchall():
-            if row[0] == "__DEFAULT__":
-                default_margin = row[1]
-            else:
-                brand_name = row[0]
-                margin = row[1]
-                brand_margins[brand_name] = margin
-                # Create case-insensitive lookup
-                brand_margins_lower[brand_name.lower()] = (brand_name, margin)
-        margin_conn.close()
-        
-        # Helper function for case-insensitive brand margin lookup
-        def get_brand_margin_case_insensitive(manufacturer_name):
-            """Get brand margin with case-insensitive lookup."""
-            if not manufacturer_name:
-                return default_margin
-            # Try exact match first
-            if manufacturer_name in brand_margins:
-                return brand_margins[manufacturer_name]
-            # Try case-insensitive match
-            manufacturer_lower = manufacturer_name.lower()
-            if manufacturer_lower in brand_margins_lower:
-                return brand_margins_lower[manufacturer_lower][1]
-            # Fall back to default
-            return default_margin
-        
-        # Load cost price overrides (for brands like COSMO where API cost is wrong)
-        cost_price_overrides = get_cost_price_overrides(dip_db)
-        
-        # Get existing items for DIP branch to preserve other columns
-        existing_items = {}
-        if branch == "DIP":
-            try:
-                # Check if stock_items table exists
-                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
-                if cur.fetchone():
-                    cur.execute('SELECT "ItemCode", "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS", "Stock Quantity", "Selling Price", "CostPrice", "Upc Code", "Description", "Manufacturer Name", "Warehouse Code", "Free Stock" FROM stock_items')
-                    for row in cur.fetchall():
-                        existing_items[row[0]] = {
-                            "AJMAN": row[1] or 0,
-                            "NAH": row[2] or 0,
-                            "DEIRA": row[3] or 0,
-                            "DEIRA2": row[4] or 0,
-                            "ABUDHABI": row[5] or 0,
-                            "QUSAIS": row[6] or 0,
-                            "Stock Quantity": row[7] or 0,
-                            "Selling Price": row[8] or 0,
-                            "CostPrice": row[9] or 0,
-                            "Upc Code": row[10] or "",
-                            "Description": row[11] or "",
-                            "Manufacturer Name": row[12] or "",
-                            "Warehouse Code": row[13] or "",
-                            "Free Stock": row[14] or 0,
-                        }
-            except sqlite3.Error as e:
-                # If table doesn't exist or query fails, continue with empty existing_items
-                print(f"Warning: Could not read existing items: {e}")
-                existing_items = {}
-        
-        # Process items
-        items_to_insert = []
-        
-        for item in items:
-            item_code = str(item.get("ItemCode", "")).strip()
-            if not item_code:
-                continue
-            
-            # Transform PC data to database format
-            upc_code = str(item.get("U_UPCCODE", "")).strip()
-            description = str(item.get("ItemName", "")).strip()
-            manufacturer = str(item.get("FirmName", "")).strip()
-            whs_code = str(item.get("WhsCode", "")).strip()
-            on_hand = _to_float(item.get("OnHand", 0), 0.0)
-            avg_price = _to_float(item.get("AvgPrice", 0), 0.0)  # Cost price from API
-            
-            # For selling price:
-            # - Use admin override if exists (admin edits are NOT affected by brand margins)
-            # - Otherwise calculate margin based on brand/manufacturer
-            # - For retail warehouses (02-07), preserve existing selling price
-            
-            # Determine the cost price to use for margin calculation
-            # Use override if exists (for brands like COSMO), otherwise use API price
-            cost_for_margin = cost_price_overrides.get(item_code, avg_price)
-            
-            # Check if admin has edited this price
-            if keep_admin_prices and item_code in existing_overrides:
-                selling_price = existing_overrides[item_code]  # Keep admin-edited price (NOT affected by brand margin)
-            elif stock_column == "Stock Quantity":  # Warehouse 01 (DIP) or 08 (RASALKHORE) - calculate brand-specific margin
-                # Get margin for this manufacturer/brand (case-insensitive lookup)
-                margin_percent = get_brand_margin_case_insensitive(manufacturer)
-                # Calculate using division: Cost / (1 - margin/100)
-                # Example: 15% margin = Cost / 0.85, 16% margin = Cost / 0.84
-                margin_divisor = 1 - (margin_percent / 100)
-                
-                # Calculate selling price with brand-specific margin (using override cost if exists)
-                if cost_for_margin > 0 and margin_divisor > 0:
-                    selling_price = round(cost_for_margin / margin_divisor, 2)
-                    # Debug: Log when brand margin is different from default (first 5 items only)
-                    if margin_percent != default_margin and len([i for i in items_to_insert if i.get("ItemCode") == item_code]) == 0:
-                        print(f"[Brand Margin] Item {item_code}: Manufacturer='{manufacturer}', Margin={margin_percent}%, Cost={cost_for_margin}, Selling={selling_price}")
-                else:
-                    selling_price = 0.0
-            else:  # Retail warehouses 02-07 - preserve existing selling price
-                selling_price = 0  # Will use existing below
-            
-            # Build row data
-            if branch == "DIP":
-                existing = existing_items.get(item_code, {})
-                
-                final_upc = upc_code if upc_code else existing.get("Upc Code", "")
-                final_description = description if description else existing.get("Description", "")
-                final_manufacturer = manufacturer if manufacturer else existing.get("Manufacturer Name", "")
-                # Only update warehouse code when syncing warehouse 01 (main DIP warehouse)
-                # For retail warehouses (02-07), preserve existing warehouse code (should be "01")
-                if stock_column == "Stock Quantity":  # Warehouse 01
-                    final_whs_code = whs_code if whs_code else existing.get("Warehouse Code", "01")
-                else:  # Retail warehouses 02-07 - preserve existing warehouse code
-                    final_whs_code = existing.get("Warehouse Code", "01")
-                
-                # Cost price: Check for override first (for brands like COSMO)
-                # If override exists, use it instead of API price
-                # Otherwise, ONLY update from warehouse 01 (main DIP warehouse)
-                if item_code in cost_price_overrides:
-                    # Use uploaded cost price override (don't take from API)
-                    final_cost_price = round(cost_price_overrides[item_code], 2)
-                elif stock_column == "Stock Quantity":  # This is warehouse 01
-                    final_cost_price = round(avg_price, 2) if avg_price > 0 else round(float(existing.get("CostPrice", 0) or 0), 2)
-                else:  # Retail warehouses 02-07 - preserve existing cost price
-                    existing_cost = existing.get("CostPrice", 0) or 0
-                    final_cost_price = round(float(existing_cost), 2)
-                
-                row_data = {
-                    "ItemCode": item_code,
-                    "Upc Code": final_upc,
-                    "Description": final_description,
-                    "Manufacturer Name": final_manufacturer,
-                    "Warehouse Code": final_whs_code,
-                    "Stock Quantity": on_hand if stock_column == "Stock Quantity" else float(existing.get("Stock Quantity", 0) or 0),
-                    "Free Stock": float(existing.get("Free Stock", 0) or 0),
-                    "Selling Price": round(selling_price, 2) if selling_price > 0 else round(float(existing.get("Selling Price", 0) or 0), 2),
-                    "CostPrice": final_cost_price,  # Always update from API AvgPrice when available (already rounded)
-                    "AJMAN": on_hand if stock_column == "AJMAN" else float(existing.get("AJMAN", 0) or 0),
-                    "NAH": on_hand if stock_column == "NAH" else float(existing.get("NAH", 0) or 0),
-                    "DEIRA": on_hand if stock_column == "DEIRA" else float(existing.get("DEIRA", 0) or 0),
-                    "DEIRA2": on_hand if stock_column == "DEIRA2" else float(existing.get("DEIRA2", 0) or 0),
-                    "ABUDHABI": on_hand if stock_column == "ABUDHABI" else float(existing.get("ABUDHABI", 0) or 0),
-                    "QUSAIS": on_hand if stock_column == "QUSAIS" else float(existing.get("QUSAIS", 0) or 0),
-                }
-            else:
-                # RASALKHORE branch
-                # Check for cost price override
-                if item_code in cost_price_overrides:
-                    ras_cost_price = round(cost_price_overrides[item_code], 2)
-                else:
-                    ras_cost_price = round(avg_price, 2)
-                
-                row_data = {
-                    "ItemCode": item_code,
-                    "Upc Code": upc_code,
-                    "Description": description,
-                    "Manufacturer Name": manufacturer,
-                    "Warehouse Code": whs_code,
-                    "Stock Quantity": on_hand,
-                    "Free Stock": 0,
-                    "Selling Price": round(selling_price, 2),  # Brand margin or admin override (rounded to 2 decimals)
-                    "CostPrice": ras_cost_price,  # Use override if exists, else API AvgPrice (rounded to 2 decimals)
-                }
-            
-            items_to_insert.append(row_data)
-        
-        # Update database
-        if items_to_insert:
-            import pandas as pd
-            df = pd.DataFrame(items_to_insert)
-            df.to_sql("stock_items", conn, if_exists="replace", index=False)
-        
-        conn.commit()
-        conn.close()
-        
-        result = {
+        # Return immediately
+        return jsonify({
             "success": True,
-            "items_updated": len(items_to_insert),
+            "message": "Sync started in background",
             "warehouse_code": warehouse_code,
-            "branch": branch
-        }
-        
-        # Broadcast SSE update to all connected clients for this branch
-        try:
-            broadcast_sse_update(branch, {
-                "type": "sync_complete",
-                "warehouse_code": warehouse_code,
-                "branch": branch,
-                "items_updated": len(items_to_insert),
-                "timestamp": datetime.now().isoformat()
-            })
-        except Exception as e:
-            # Don't fail the sync if SSE broadcast fails
-            print(f"SSE broadcast error: {e}")
-        
-        return jsonify(result)
+            "items_received": len(items)
+        })
         
     except sqlite3.Error as e:
         import traceback

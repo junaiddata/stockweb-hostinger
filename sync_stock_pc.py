@@ -243,6 +243,16 @@ def notify_flask_updates(results: Dict[str, Dict]):
         # Don't fail sync if notification fails
         log_message(f"  ⚠ Error notifying Flask: {e}")
 
+def check_vps_connection() -> bool:
+    """Check if VPS/localhost is reachable before syncing."""
+    try:
+        # Try to connect to the health endpoint or root
+        test_url = f"{VPS_BASE_URL}/"
+        response = requests.get(test_url, timeout=5)
+        return response.status_code in [200, 302, 404]  # Any response means server is up
+    except requests.RequestException:
+        return False
+
 def main():
     """Main function to sync all warehouses from local API to VPS."""
     print("=" * 70)
@@ -251,6 +261,20 @@ def main():
     print(f"Local API: {API_BASE_URL}")
     print(f"VPS URL: {VPS_BASE_URL}")
     print("-" * 70)
+    
+    # Check if VPS/localhost is reachable
+    if not check_vps_connection():
+        log_message(f"\n❌ ERROR: Cannot connect to {VPS_BASE_URL}")
+        if "localhost" in VPS_BASE_URL or "127.0.0.1" in VPS_BASE_URL:
+            log_message("\n💡 Flask server is not running!")
+            log_message("   Start Flask with: python app.py")
+            log_message("   Or: flask run --host=0.0.0.0 --port=5000")
+        else:
+            log_message(f"\n💡 VPS server at {VPS_BASE_URL} is not reachable")
+            log_message("   Check if the server is running and accessible")
+        return 1
+    
+    log_message(f"✓ Connected to {VPS_BASE_URL}")
     
     # Check configuration
     if VPS_API_KEY == "your-secret-api-key":
@@ -338,8 +362,18 @@ def run_scheduled_sync():
         log_message(traceback.format_exc())
 
 if __name__ == "__main__":
+    # Parse command-line arguments
+    use_local = "--local" in sys.argv
+    run_once = "--once" in sys.argv
+    
+    # If --local flag is set, use localhost instead of VPS
+    if use_local:
+        original_vps_url = VPS_BASE_URL
+        VPS_BASE_URL = "http://localhost:5000"
+        log_message(f"🔧 LOCAL MODE: Using {VPS_BASE_URL} instead of {original_vps_url}")
+    
     # Check if running as background service (no arguments) or one-time run (with --once)
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+    if run_once:
         # One-time run mode (for testing or manual execution)
         exit_code = main()
         sys.exit(exit_code)
@@ -347,6 +381,8 @@ if __name__ == "__main__":
         # Background service mode - runs continuously
         log_message("=" * 70)
         log_message("PC Stock Sync Service Started")
+        if use_local:
+            log_message("🔧 Running in LOCAL MODE (localhost)")
         log_message("=" * 70)
         log_message(f"Service will sync every 5 minutes")
         log_message(f"Log file: {LOG_FILE}")
