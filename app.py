@@ -27,9 +27,9 @@ def get_db_connection(db_path: str, timeout: float = 10.0, retries: int = 3):
     for attempt in range(retries):
         try:
             conn = sqlite3.connect(db_path, timeout=timeout)
-            # Enable WAL mode for concurrent reads
+            # Enable WAL mode for concurrent reads (critical for VPS with sync)
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
+            conn.execute("PRAGMA busy_timeout=60000")  # 60 second wait on lock (helps during sync)
             yield conn
             conn.commit()
             break
@@ -96,6 +96,27 @@ def get_sse_queue(branch):
         if branch not in sse_connections:
             sse_connections[branch] = []
         return sse_connections[branch]
+
+@app.errorhandler(500)
+def handle_500(error):
+    """Return user-friendly message for database lock / server errors."""
+    # Log the real error for debugging (check VPS logs)
+    import traceback
+    traceback.print_exc()
+    # Check if database lock (Flask may wrap exception)
+    exc = getattr(error, 'original_exception', error)
+    if isinstance(exc, sqlite3.OperationalError):
+        msg = str(exc).lower()
+        if 'locked' in msg or 'database' in msg:
+            return '''
+            <html><head><meta charset="utf-8"><title>Please Try Again</title></head>
+            <body style="font-family:sans-serif;text-align:center;padding:60px;background:#f5f5f5;">
+            <h2 style="color:#d32f2f;">Database is temporarily busy</h2>
+            <p>The server is processing a data sync. Please <a href="javascript:location.reload()">refresh the page</a> in a few seconds.</p>
+            <p style="color:#666;font-size:14px;">If this continues, try again in 1-2 minutes.</p>
+            </body></html>
+            ''', 503
+    return "An unexpected error occurred. Please try again later.", 500
 
 def broadcast_sse_update(branch, data):
     """Broadcast update to all SSE connections for a branch."""
@@ -270,24 +291,31 @@ def ensure_alabama_margins_table(db_path: str):
     1. cost_margin_percent: Applied to Junaid Cost → Alabama Cost (additive: Cost * (1 + margin/100))
     2. brand_margin_percent: Applied to Alabama Cost → Alabama Selling Price (division: Cost / (1 - margin/100))
     """
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS alabama_margins (
-            brand_name TEXT PRIMARY KEY,
-            cost_margin_percent REAL DEFAULT 10.0,  -- Default 10% markup on Junaid cost
-            brand_margin_percent REAL DEFAULT 15.0,  -- Default 15% margin for selling price
-            edited_by TEXT,
-            edited_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    # Insert default margin row if not exists
-    cur.execute("""
-        INSERT OR IGNORE INTO alabama_margins (brand_name, cost_margin_percent, brand_margin_percent, edited_by)
-        VALUES ('__DEFAULT__', 10.0, 15.0, 'system')
-    """)
-    conn.commit()
-    conn.close()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with get_db_connection(db_path, timeout=5.0) as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS alabama_margins (
+                        brand_name TEXT PRIMARY KEY,
+                        cost_margin_percent REAL DEFAULT 10.0,  -- Default 10% markup on Junaid cost
+                        brand_margin_percent REAL DEFAULT 15.0,  -- Default 15% margin for selling price
+                        edited_by TEXT,
+                        edited_at TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                # Insert default margin row if not exists
+                cur.execute("""
+                    INSERT OR IGNORE INTO alabama_margins (brand_name, cost_margin_percent, brand_margin_percent, edited_by)
+                    VALUES ('__DEFAULT__', 10.0, 15.0, 'system')
+                """)
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))
+                continue
+            raise
 
 def get_alabama_margins(db_path: str, brand_name: str) -> tuple:
     """
@@ -1323,31 +1351,30 @@ def stock_page(branch):
                     else:
                         placeholders = ",".join(["?"] * len(item_codes))
                         dip_db_path = DB_PATHS["DIP"]
-                        conn2 = sqlite3.connect(dip_db_path)
-                        cur2 = conn2.cursor()
-                        # OPTIMIZATION: Use single query with SUM aggregation instead of Python loops
-                        cur2.execute(f'''
-                            SELECT
-                                CAST(COALESCE(SUM(CAST(si."AJMAN" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS aj_total,
-                                CAST(COALESCE(SUM(CAST(si."NAH" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS nah_total,
-                                CAST(COALESCE(SUM(CAST(si."DEIRA" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS deira_total,
-                                CAST(COALESCE(SUM(CAST(si."DEIRA2" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS deira2_total,
-                                CAST(COALESCE(SUM(CAST(si."ABUDHABI" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS abu_total,
-                                CAST(COALESCE(SUM(CAST(si."QUSAIS" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS qus_total
-                            FROM stock_items si
-                            WHERE si."ItemCode" IN ({placeholders})
-                        ''', item_codes)
-                        
-                        row = cur2.fetchone()
-                        if row:
-                            branch_totals["AJMAN"] = round(float(row[0] or 0), 2)
-                            branch_totals["NAH"] = round(float(row[1] or 0), 2)
-                            branch_totals["DEIRA"] = round(float(row[2] or 0), 2)
-                            branch_totals["DEIRA2"] = round(float(row[3] or 0), 2)
-                            branch_totals["ABUDHABI"] = round(float(row[4] or 0), 2)
-                            branch_totals["QUSAIS"] = round(float(row[5] or 0), 2)
-
-                        conn2.close()
+                        try:
+                            with get_db_connection(dip_db_path, timeout=15.0) as conn2:
+                                cur2 = conn2.cursor()
+                                cur2.execute(f'''
+                                    SELECT
+                                        CAST(COALESCE(SUM(CAST(si."AJMAN" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS aj_total,
+                                        CAST(COALESCE(SUM(CAST(si."NAH" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS nah_total,
+                                        CAST(COALESCE(SUM(CAST(si."DEIRA" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS deira_total,
+                                        CAST(COALESCE(SUM(CAST(si."DEIRA2" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS deira2_total,
+                                        CAST(COALESCE(SUM(CAST(si."ABUDHABI" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS abu_total,
+                                        CAST(COALESCE(SUM(CAST(si."QUSAIS" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS qus_total
+                                    FROM stock_items si
+                                    WHERE si."ItemCode" IN ({placeholders})
+                                ''', item_codes)
+                                row = cur2.fetchone()
+                                if row:
+                                    branch_totals["AJMAN"] = round(float(row[0] or 0), 2)
+                                    branch_totals["NAH"] = round(float(row[1] or 0), 2)
+                                    branch_totals["DEIRA"] = round(float(row[2] or 0), 2)
+                                    branch_totals["DEIRA2"] = round(float(row[3] or 0), 2)
+                                    branch_totals["ABUDHABI"] = round(float(row[4] or 0), 2)
+                                    branch_totals["QUSAIS"] = round(float(row[5] or 0), 2)
+                        except sqlite3.OperationalError:
+                            pass  # Skip branch totals if DB locked
 
                     # Totals already rounded above (removed redundant loop)
 
@@ -1366,16 +1393,18 @@ def stock_page(branch):
                     else:
                         placeholders = ",".join(["?"] * len(item_codes))
                         dip_db_path = DB_PATHS["DIP"]
-                        conn2 = sqlite3.connect(dip_db_path)
-                        cur2 = conn2.cursor()
-                        cur2.execute(f'''
-                            SELECT CAST(COALESCE(SUM(CAST(si."Stock Quantity" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS total
-                            FROM stock_items si
-                            WHERE si."ItemCode" IN ({placeholders})
-                        ''', item_codes)
-                        row = cur2.fetchone()
-                        dip_total_value = round(float(row[0] or 0), 2) if row else 0.0
-                        conn2.close()
+                        try:
+                            with get_db_connection(dip_db_path, timeout=15.0) as conn2:
+                                cur2 = conn2.cursor()
+                                cur2.execute(f'''
+                                    SELECT CAST(COALESCE(SUM(CAST(si."Stock Quantity" AS REAL) * CAST(si."CostPrice" AS REAL)), 0) AS REAL) AS total
+                                    FROM stock_items si
+                                    WHERE si."ItemCode" IN ({placeholders})
+                                ''', item_codes)
+                                row = cur2.fetchone()
+                                dip_total_value = round(float(row[0] or 0), 2) if row else 0.0
+                        except sqlite3.OperationalError:
+                            pass  # Skip if DB locked
 
         except Exception:
             dip_total_value = 0.0 if dip_total_value is None else dip_total_value
