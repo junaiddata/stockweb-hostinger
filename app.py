@@ -100,23 +100,32 @@ def get_sse_queue(branch):
 @app.errorhandler(500)
 def handle_500(error):
     """Return user-friendly message for database lock / server errors."""
-    # Log the real error for debugging (check VPS logs)
     import traceback
-    traceback.print_exc()
-    # Check if database lock (Flask may wrap exception)
+    tb = traceback.format_exc()
+    print(tb)  # Log full traceback to VPS console/logs
+    # Check if database-related (Flask/WSGI may wrap the exception)
     exc = getattr(error, 'original_exception', error)
-    if isinstance(exc, sqlite3.OperationalError):
-        msg = str(exc).lower()
-        if 'locked' in msg or 'database' in msg:
-            return '''
-            <html><head><meta charset="utf-8"><title>Please Try Again</title></head>
-            <body style="font-family:sans-serif;text-align:center;padding:60px;background:#f5f5f5;">
-            <h2 style="color:#d32f2f;">Database is temporarily busy</h2>
-            <p>The server is processing a data sync. Please <a href="javascript:location.reload()">refresh the page</a> in a few seconds.</p>
-            <p style="color:#666;font-size:14px;">If this continues, try again in 1-2 minutes.</p>
-            </body></html>
-            ''', 503
-    return "An unexpected error occurred. Please try again later.", 500
+    msg = (str(exc) + tb).lower()
+    is_db_error = (
+        isinstance(exc, sqlite3.OperationalError) or
+        'locked' in msg or
+        'database' in msg or
+        'sqlite' in msg or
+        'operationalerror' in msg or
+        'busy' in msg
+    )
+    friendly = '''
+    <html><head><meta charset="utf-8"><title>Please Try Again</title></head>
+    <body style="font-family:sans-serif;text-align:center;padding:60px;background:#f5f5f5;">
+    <h2 style="color:#d32f2f;">Database is temporarily busy</h2>
+    <p>The server is processing a data sync. Please <a href="javascript:location.reload()">refresh the page</a> in a few seconds.</p>
+    <p style="color:#666;font-size:14px;">If this continues, try again in 1-2 minutes.</p>
+    </body></html>
+    '''
+    if is_db_error:
+        return friendly, 503
+    # Also show friendly message for any 500 - likely sync-related on VPS
+    return friendly, 503
 
 def broadcast_sse_update(branch, data):
     """Broadcast update to all SSE connections for a branch."""
