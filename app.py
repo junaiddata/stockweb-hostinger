@@ -150,63 +150,59 @@ def broadcast_sse_update(branch, data):
             sse_connections[branch] = active_queues
 
 
-@app.before_request
-def device_restriction_middleware():
-    # 1. Allow Static files (CSS/JS/Images)
-    if request.path.startswith('/static'):
-        return
+# In-memory cache for approved device tokens (avoids DB hit on every request)
+_device_token_cache = {}
+_DEVICE_CACHE_TTL = 300  # 5 minutes
 
-    # 2. Allow SSE endpoints (no device check needed)
-    if request.path.startswith('/api/stock-stream/'):
-        return
-    
-    # 3. Allow sync notification endpoint (called by sync script)
-    if request.path == '/api/notify-sync-complete':
-        return
-
-    # 4. Allow Login & Device Registration pages explicitly
-    allowed_endpoints = [
-        'login',            # Admin login
-        'register_device',  # The form
-        'device_pending',   # The waiting screen
-        'approve_devices',  # The admin panel to approve
-        'admin_brand_margins',  # Brand margin management
-        'api_update_brand_margin',  # Brand margin API
-        'logout',           # Logout
-        'logo_proxy',
-        'stock_api',        # Logo image
-        'api_sync_stock'    # PC sync API endpoint
-    ]
-    
-    if request.endpoint in allowed_endpoints:
-        return
-
-    # 3. Check for Cookie
-    token = request.cookies.get('device_token')
-    
-    if not token:
-        return redirect(url_for('register_device'))
-
-    # 4. Check Database
+def _check_device_token(token):
+    """Check device token status, using in-memory cache to skip DB queries."""
+    now = time.time()
+    cached = _device_token_cache.get(token)
+    if cached and (now - cached["ts"]) < _DEVICE_CACHE_TTL:
+        return cached["status"]
     try:
         with get_db_connection(DEVICE_DB) as conn:
             c = conn.cursor()
             c.execute("SELECT status FROM trusted_devices WHERE token = ?", (token,))
             row = c.fetchone()
+        status = row[0] if row else None
     except sqlite3.OperationalError:
-        # If database is locked, allow access (fail open for better UX)
+        status = _device_token_cache.get(token, {}).get("status")
+    _device_token_cache[token] = {"status": status, "ts": now}
+    return status
+
+@app.before_request
+def device_restriction_middleware():
+    if request.path.startswith('/static'):
+        return
+
+    if request.path.startswith('/api/stock-stream/'):
+        return
+    
+    if request.path == '/api/notify-sync-complete':
+        return
+
+    allowed_endpoints = [
+        'login', 'register_device', 'device_pending', 'approve_devices',
+        'admin_brand_margins', 'api_update_brand_margin', 'logout',
+        'logo_proxy', 'stock_api', 'api_sync_stock'
+    ]
+    
+    if request.endpoint in allowed_endpoints:
+        return
+
+    token = request.cookies.get('device_token')
+    
+    if not token:
         return redirect(url_for('register_device'))
 
-    # 5. Logic:
-    # If no record found -> Re-register
-    if not row:
+    status = _check_device_token(token)
+
+    if not status:
         return redirect(url_for('register_device'))
     
-    # If record exists but is Pending -> Wait
-    if row[0] != 'approved':
+    if status != 'approved':
         return redirect(url_for('device_pending'))
-
-    # If Approved -> Access Granted (Do nothing, let Flask continue)
 
 UPLOAD_FOLDER = "uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -1004,21 +1000,49 @@ def ensure_stock_items_indexes(db_path: str):
                 raise
 
 def update_database(branch, df, keep_admin_prices=True):
+    """Persist DataFrame into per-branch DB using INSERT OR REPLACE (safe, no table drop)."""
     db_path = DB_PATHS[branch]
-    conn = sqlite3.connect(db_path)
-    df.to_sql("stock_items", conn, if_exists="replace", index=False)
-    conn.commit()
-    conn.close()
+
+    with get_db_connection(db_path, timeout=30.0) as conn:
+        cur = conn.cursor()
+
+        # Create stock_items if missing
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+        if not cur.fetchone():
+            if branch == "DIP":
+                cur.execute("""
+                    CREATE TABLE stock_items (
+                        "ItemCode" TEXT PRIMARY KEY, "Upc Code" TEXT, "Description" TEXT,
+                        "Manufacturer Name" TEXT, "Warehouse Code" TEXT,
+                        "Stock Quantity" REAL DEFAULT 0, "Free Stock" REAL DEFAULT 0,
+                        "Selling Price" REAL DEFAULT 0, "CostPrice" REAL DEFAULT 0,
+                        "AJMAN" REAL DEFAULT 0, "NAH" REAL DEFAULT 0, "DEIRA" REAL DEFAULT 0,
+                        "DEIRA2" REAL DEFAULT 0, "ABUDHABI" REAL DEFAULT 0, "QUSAIS" REAL DEFAULT 0
+                    )
+                """)
+            else:
+                cur.execute("""
+                    CREATE TABLE stock_items (
+                        "ItemCode" TEXT PRIMARY KEY, "Upc Code" TEXT, "Description" TEXT,
+                        "Manufacturer Name" TEXT, "Warehouse Code" TEXT,
+                        "Stock Quantity" REAL DEFAULT 0, "Free Stock" REAL DEFAULT 0,
+                        "Selling Price" REAL DEFAULT 0, "CostPrice" REAL DEFAULT 0
+                    )
+                """)
+
+        columns = list(df.columns)
+        placeholders = ", ".join(["?"] * len(columns))
+        col_names = ", ".join(f'"{c}"' for c in columns)
+        sql = f'INSERT OR REPLACE INTO stock_items ({col_names}) VALUES ({placeholders})'
+
+        for _, row in df.iterrows():
+            cur.execute(sql, tuple(row[c] for c in columns))
 
     ensure_override_table(db_path)
 
-    # If user UNCHECKED the box, clear overrides for that branch
     if not keep_admin_prices:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("DELETE FROM price_overrides")
-        conn.commit()
-        conn.close()
+        with get_db_connection(db_path, timeout=10.0) as conn:
+            conn.execute("DELETE FROM price_overrides")
 
 @app.route("/")
 def home():
@@ -2130,6 +2154,13 @@ def _process_sync_in_background(data):
                             ))
             
             ensure_stock_items_indexes(db_path)
+            
+            # WAL checkpoint: keep WAL file small after bulk writes
+            try:
+                with get_db_connection(db_path, timeout=10.0) as ckpt_conn:
+                    ckpt_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
             
             # Broadcast SSE update
             try:

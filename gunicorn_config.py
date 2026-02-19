@@ -9,8 +9,8 @@ import os
 
 bind = "0.0.0.0:5000"
 workers = 1   # MUST be 1 for SQLite - multi-worker causes DB locks in production
-worker_class = "sync"
-threads = 4  # Threads per worker (all share same process/DB connections)
+worker_class = "gthread"  # Better concurrency for I/O-bound workloads (DB reads, HTTP calls)
+threads = 8  # More threads = more concurrent requests handled per worker
 timeout = 300
 keepalive = 5
 

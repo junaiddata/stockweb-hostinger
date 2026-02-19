@@ -19,7 +19,7 @@ def try_dump_table(conn, table, out_file):
         # Write as INSERT statements
         with open(out_file, "w") as f:
             for row in rows:
-                vals = ", ".join(repr(v) for v in row)
+                vals = ", ".join("NULL" if v is None else repr(v) for v in row)
                 cols = ", ".join(f'"{c}"' for c in col_names)
                 f.write(f'INSERT OR REPLACE INTO {table} ({cols}) VALUES ({vals});\n')
         print(f"  {table}: {len(rows)} rows -> {out_file}")
