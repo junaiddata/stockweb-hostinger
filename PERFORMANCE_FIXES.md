@@ -55,9 +55,14 @@ fastcgi_read_timeout 300s;
 ```
 
 ### Flask/Gunicorn Configuration
-If using Gunicorn, configure it with:
+**CRITICAL: Use 1 worker with SQLite** - multiple workers cause "database is locked" in production.
+
 ```bash
-gunicorn -w 4 -t 300 --bind 0.0.0.0:5000 app:app
+# Recommended: use gunicorn_config.py
+gunicorn -c gunicorn_config.py app:app
+
+# Or explicitly:
+gunicorn -w 1 -t 300 --bind 0.0.0.0:5000 --chdir /path/to/STOCK\ WEB app:app
 ```
 
 ### Database Optimization
