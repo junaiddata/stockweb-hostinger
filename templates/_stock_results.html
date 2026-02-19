@@ -154,7 +154,7 @@
                         <th class="right">Total Retail</th>
                         <th class="right">Min. Price</th>
                         {% if session.username %}<th class="right">Cost</th>{% endif %}
-                        <th class="right">Cost Price 2</th>
+                        <!-- <th class="right">Cost Price 2</th> -->
                     </tr>
                 </thead>
                 <tbody>
@@ -193,7 +193,7 @@
                         {% if session.username %}
                             <td class="right">{{ item[12] }}</td>
                         {% endif %}
-                        <td class="right">{{ item[13]|money }}</td>
+                        <!-- <td class="right">{{ item[13]|money }}</td> -->
                     </tr>
                     {% endfor %}
                 </tbody>
