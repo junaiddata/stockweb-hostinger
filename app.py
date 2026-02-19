@@ -564,7 +564,7 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             if branch == "DIP":
                 columns_sql = '''
                     CREATE TABLE stock_items (
-                        "ItemCode" TEXT,
+                        "ItemCode" TEXT PRIMARY KEY,
                         "Upc Code" TEXT,
                         "Description" TEXT,
                         "Manufacturer Name" TEXT,
@@ -584,7 +584,7 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             else:
                 columns_sql = '''
                     CREATE TABLE stock_items (
-                        "ItemCode" TEXT,
+                        "ItemCode" TEXT PRIMARY KEY,
                         "Upc Code" TEXT,
                         "Description" TEXT,
                         "Manufacturer Name" TEXT,
@@ -1912,7 +1912,7 @@ def _process_sync_in_background(data):
                     if branch == "DIP":
                         cur.execute("""
                             CREATE TABLE stock_items (
-                                "ItemCode" TEXT,
+                                "ItemCode" TEXT PRIMARY KEY,
                                 "Upc Code" TEXT,
                                 "Description" TEXT,
                                 "Manufacturer Name" TEXT,
@@ -1932,7 +1932,7 @@ def _process_sync_in_background(data):
                     else:
                         cur.execute("""
                             CREATE TABLE stock_items (
-                                "ItemCode" TEXT,
+                                "ItemCode" TEXT PRIMARY KEY,
                                 "Upc Code" TEXT,
                                 "Description" TEXT,
                                 "Manufacturer Name" TEXT,
