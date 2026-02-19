@@ -29,7 +29,7 @@ def get_db_connection(db_path: str, timeout: float = 10.0, retries: int = 3):
             conn = sqlite3.connect(db_path, timeout=timeout)
             # Enable WAL mode for concurrent reads (critical for VPS with sync)
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=60000")  # 60 second wait on lock (helps during sync)
+            conn.execute("PRAGMA busy_timeout=5000")  # 5 second wait - fail fast, avoid 60s LCP when locked
             yield conn
             conn.commit()
             break
