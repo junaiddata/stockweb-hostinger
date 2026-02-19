@@ -1904,6 +1904,47 @@ def _process_sync_in_background(data):
             if branch == "DIP":
                 ensure_retail_override_table(db_path)
             
+            # Create stock_items table if it doesn't exist (background sync path doesn't use sync_stock_from_api)
+            with get_db_connection(db_path, timeout=10.0) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+                if not cur.fetchone():
+                    if branch == "DIP":
+                        cur.execute("""
+                            CREATE TABLE stock_items (
+                                "ItemCode" TEXT,
+                                "Upc Code" TEXT,
+                                "Description" TEXT,
+                                "Manufacturer Name" TEXT,
+                                "Warehouse Code" TEXT,
+                                "Stock Quantity" REAL DEFAULT 0,
+                                "Free Stock" REAL DEFAULT 0,
+                                "Selling Price" REAL DEFAULT 0,
+                                "CostPrice" REAL DEFAULT 0,
+                                "AJMAN" REAL DEFAULT 0,
+                                "NAH" REAL DEFAULT 0,
+                                "DEIRA" REAL DEFAULT 0,
+                                "DEIRA2" REAL DEFAULT 0,
+                                "ABUDHABI" REAL DEFAULT 0,
+                                "QUSAIS" REAL DEFAULT 0
+                            )
+                        """)
+                    else:
+                        cur.execute("""
+                            CREATE TABLE stock_items (
+                                "ItemCode" TEXT,
+                                "Upc Code" TEXT,
+                                "Description" TEXT,
+                                "Manufacturer Name" TEXT,
+                                "Warehouse Code" TEXT,
+                                "Stock Quantity" REAL DEFAULT 0,
+                                "Free Stock" REAL DEFAULT 0,
+                                "Selling Price" REAL DEFAULT 0,
+                                "CostPrice" REAL DEFAULT 0
+                            )
+                        """)
+                    conn.commit()
+            
             # Get existing admin price overrides
             existing_overrides = {}
             existing_retail_overrides = {}
