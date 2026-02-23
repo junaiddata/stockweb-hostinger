@@ -228,6 +228,170 @@ DB_PATHS = {
 # Retail branch names exactly as your OUTPUT_DIP column headers
 RETAIL_BRANCHES = ["AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS","ALLSTORES"]
 
+# Brands to hide from Alabama and Junaid Brand Margins admin pages (old/legacy brands)
+HIDDEN_BRANDS = frozenset(b.strip().upper() for b in """
+AA JUMA
+ALLFLEX
+ALMANIT
+ALPINE
+AQUA
+AQUA  ECO
+AQUA GAS
+AQUAPLAST
+AQUATHERM
+AQUAWELD
+ARAMIX
+ARMITAGE SHANKS
+ASB
+ASCON
+ASHIRWAD
+BBSPAIN
+BENNINGER
+BESTWELD
+BIS
+BLANCO
+BORZ
+BOSSINI
+BRADFORD
+BUGATI
+CLEVER
+COCO BELLA
+CONCEPT
+CONCORD
+CRANE
+CRI
+CTESI
+DELABIE
+DIAMOND
+EFFEPI
+ELDOM
+ELECTRIC
+ELECTRIC ALI SHAHDAD
+ELOFIT
+ENDEX
+ENOLGAS
+ESBE
+ESWIT
+EURO
+EVERSAFE/PROJECT
+EXCEL
+F.MORI
+FARIS
+FERROLI
+FLOWCON
+FLOWTECH-MPI
+FORMEC
+FRANKLYN
+FRASCIO
+GALA
+GEBRIT
+GIACOMINI-ITALY
+GRANDFOSE
+GROHE OLD
+HAKAN
+HAMADA
+HARDWARE
+HEATEX
+HERZ
+HIMARK
+IDEAL
+IG
+ITAP
+ITIPLAST
+J.K.CERA INTERNATIONAL
+JAGUAR
+JEVCO
+JOCKEY
+JUNE-WATER HEATER
+KALPADA
+LOCAL
+LOWARA
+LT
+LUBI
+MACDEE
+MARINA
+MBEE
+MCALPINE
+MILANO
+MILIN TUBES
+MIRAGE
+MUELLER EUROPE
+MUH-ASCON
+MUH-EBRAR
+MUH-FEDCAB
+MUH-FRANKLIN
+MUH-MBEE
+MUH-OSWAL
+MUH-SAER
+MUH-SPERONI
+MUH-STARTER
+MUH-VARUNA
+MUH-XTRACAB
+MULTIFLOW
+MURI SILIENT PIPE
+MARAZZI
+NATIONAL
+NIAGARA
+NOVATHERM
+OLD STOCK
+OMEGA
+ORIENT
+PALSON
+PATTEX
+PEGLER- OLD
+PEGLER-XPRESS
+PENTAGONO
+PILOT
+PILSA
+PLUMBING
+POLO
+POLYPIPE
+POWER
+RASTELI
+REFERENCIA
+REWT
+S KRIPA
+SAER
+SANITARYWARE
+SANWA
+SARIA
+SAUDI
+SAXON
+SHAKTHI
+SKOLAN
+SMITH
+SPERONI
+STATE
+SUNDEX
+SUNNEX
+SUSPECT
+SWEDE
+SWME
+THERMEX
+THERMOWATT
+TILES
+TM-OLD
+TOPI
+TRADEX
+TSP
+ULTRA
+ULTRAFLOW
+UNIFLO
+VALTECH
+VALVEIT
+VEIGA
+VELENCIA
+VENICE
+VESBO
+VESPA
+WATER TECH
+WATERFORCE
+WEFATHERM
+WINNER
+WIRQUIN
+ZENITH GI PIPE
+""".strip().splitlines() if b.strip())
+
 
 def ensure_retail_override_table(db_path: str):
     """
@@ -2836,6 +3000,7 @@ def admin_brand_margins():
     # Get all unique manufacturers from stock_items
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != "" ORDER BY "Manufacturer Name"')
     all_manufacturers = [row[0] for row in cur.fetchall()]
+    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
     
     # Get all brand margins (excluding default)
     cur.execute("SELECT brand_name, margin_percent, edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
@@ -3138,7 +3303,7 @@ def admin_alabama_margins():
         all_manufacturers.add(row[0])
     ras_conn.close()
     
-    all_manufacturers = sorted(list(all_manufacturers))
+    all_manufacturers = sorted([m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS])
     
     # Get all Alabama margins (excluding default)
     cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent, edited_by, edited_at FROM alabama_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
