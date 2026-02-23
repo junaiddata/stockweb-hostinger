@@ -1282,7 +1282,8 @@ def stock_page(branch):
                         t.Description         AS "Description",
                         t.ManufacturerName    AS "Manufacturer Name",
                         t.JunaidCost          AS "JunaidCost",
-                        t.CostOverride        AS "CostOverride"
+                        t.CostOverride        AS "CostOverride",
+                        t.SellingOverride     AS "SellingOverride"
                     FROM (
                         SELECT
                             dip_si."ItemCode"             AS ItemCode,
@@ -1290,7 +1291,8 @@ def stock_page(branch):
                             dip_si."Description"          AS Description,
                             dip_si."Manufacturer Name"    AS ManufacturerName,
                             dip_si."CostPrice"            AS JunaidCost,
-                            po.CostPriceOverride          AS CostOverride
+                            po.CostPriceOverride          AS CostOverride,
+                            po.SellingPriceOverride      AS SellingOverride
                         FROM dip.stock_items dip_si
                         LEFT JOIN alabama.price_overrides po ON po.ItemCode = dip_si."ItemCode"
                         WHERE dip_si."ItemCode" IS NOT NULL
@@ -1303,7 +1305,8 @@ def stock_page(branch):
                             ras_si."Description"           AS Description,
                             ras_si."Manufacturer Name"     AS ManufacturerName,
                             ras_si."CostPrice"             AS JunaidCost,
-                            po.CostPriceOverride           AS CostOverride
+                            po.CostPriceOverride           AS CostOverride,
+                            po.SellingPriceOverride        AS SellingOverride
                         FROM ras.stock_items ras_si
                         LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = ras_si."ItemCode"
                         LEFT JOIN alabama.price_overrides po ON po.ItemCode = ras_si."ItemCode"
@@ -1419,10 +1422,10 @@ def stock_page(branch):
                             default_brand_margin = 15.0
                         
                         # Process results: Calculate Alabama Cost and Selling Price
-                        # Results format: (ItemCode, Upc Code, Description, Manufacturer Name, JunaidCost, CostOverride)
+                        # Results format: (ItemCode, Upc Code, Description, Manufacturer Name, JunaidCost, CostOverride, SellingOverride)
                         processed_results = []
                         for row in results:
-                            item_code, upc_code, description, manufacturer, junaid_cost, cost_override = row
+                            item_code, upc_code, description, manufacturer, junaid_cost, cost_override, selling_override = row
                             
                             # Use override if exists, otherwise use Junaid cost
                             base_cost = float(cost_override) if cost_override is not None else float(junaid_cost or 0)
@@ -1438,9 +1441,12 @@ def stock_page(branch):
                             # Calculate Alabama Cost = Junaid Cost * (1 + cost_margin/100)
                             alabama_cost = round(base_cost * (1 + cost_margin / 100), 2) if base_cost > 0 else 0.0
                             
-                            # Calculate Alabama Selling Price = Alabama Cost / (1 - brand_margin/100)
-                            margin_divisor = 1 - (brand_margin / 100)
-                            alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+                            # Selling price: use override if exists, else calculate from cost + brand margin
+                            if selling_override is not None and float(selling_override) >= 0:
+                                alabama_selling_price = round(float(selling_override), 2)
+                            else:
+                                margin_divisor = 1 - (brand_margin / 100)
+                                alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
                             
                             # Return: ItemCode, Upc Code, Description, Manufacturer Name, CostPrice, Selling Price
                             processed_results.append((
@@ -1797,13 +1803,14 @@ def item_detail(branch, item_code):
             ras_conn.close()
 
         if item:
-            # Get cost override if exists
+            # Get cost and selling overrides if exist
             alabama_conn = sqlite3.connect(alabama_db)
             alabama_cur = alabama_conn.cursor()
             ensure_override_table(alabama_db)
-            alabama_cur.execute('SELECT CostPriceOverride FROM price_overrides WHERE ItemCode = ?', (item_code,))
+            alabama_cur.execute('SELECT CostPriceOverride, SellingPriceOverride FROM price_overrides WHERE ItemCode = ?', (item_code,))
             override_row = alabama_cur.fetchone()
             cost_override = override_row[0] if override_row else None
+            selling_override = override_row[1] if override_row and len(override_row) > 1 else None
             
             # Get Alabama margins
             ensure_alabama_margins_table(alabama_db)
@@ -1814,8 +1821,11 @@ def item_detail(branch, item_code):
             # Calculate prices
             junaid_cost = float(cost_override) if cost_override is not None else float(item[4] or 0)
             alabama_cost = round(junaid_cost * (1 + cost_margin / 100), 2) if junaid_cost > 0 else 0.0
-            margin_divisor = 1 - (brand_margin / 100)
-            alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+            if selling_override is not None and float(selling_override) >= 0:
+                alabama_selling_price = round(float(selling_override), 2)
+            else:
+                margin_divisor = 1 - (brand_margin / 100)
+                alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
             
             item_data = {
                 "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
@@ -1964,6 +1974,7 @@ def update_min_price():
     branch = (data.get("branch") or "").strip().upper()
     item_code = (data.get("item_code") or "").strip()
     price_val = data.get("min_price")
+    field = (data.get("field") or "cost").strip().lower()  # For ALABAMA: "cost" or "selling"
 
     if not item_code:
         return jsonify(ok=False, error="Missing item_code"), 400
@@ -2025,21 +2036,51 @@ def update_min_price():
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
 
-        # item must exist in sheet
-        cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
-        if not cur.fetchone():
-            return jsonify(ok=False, error=f'Item not found in stock_items: "{item_code}"'), 404
+        # item must exist (Alabama: check DIP/RAS; others: check local stock_items)
+        if branch == "ALABAMA":
+            dip_db = DB_PATHS.get("DIP")
+            ras_db = DB_PATHS.get("RASALKHORE")
+            found = False
+            if dip_db and os.path.exists(dip_db):
+                dip_cur = sqlite3.connect(dip_db).cursor()
+                dip_cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
+                if dip_cur.fetchone():
+                    found = True
+                dip_cur.connection.close()
+            if not found and ras_db and os.path.exists(ras_db):
+                ras_cur = sqlite3.connect(ras_db).cursor()
+                ras_cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
+                if ras_cur.fetchone():
+                    found = True
+                ras_cur.connection.close()
+            if not found:
+                return jsonify(ok=False, error=f'Item not found in DIP/RAS: "{item_code}"'), 404
+        else:
+            cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
+            if not cur.fetchone():
+                return jsonify(ok=False, error=f'Item not found in stock_items: "{item_code}"'), 404
 
         if branch == "ALABAMA":
-            # Upsert CostPriceOverride
-            cur.execute("""
-                INSERT INTO price_overrides (ItemCode, CostPriceOverride, edited_by)
-                VALUES (?, ?, ?)
-                ON CONFLICT(ItemCode) DO UPDATE SET
-                    CostPriceOverride = excluded.CostPriceOverride,
-                    edited_by = excluded.edited_by,
-                    edited_at = datetime('now')
-            """, (item_code, price_val, session.get("username", "admin")))
+            if field == "selling":
+                # Upsert SellingPriceOverride for Alabama
+                cur.execute("""
+                    INSERT INTO price_overrides (ItemCode, SellingPriceOverride, edited_by)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(ItemCode) DO UPDATE SET
+                        SellingPriceOverride = excluded.SellingPriceOverride,
+                        edited_by = excluded.edited_by,
+                        edited_at = datetime('now')
+                """, (item_code, price_val, session.get("username", "admin")))
+            else:
+                # Upsert CostPriceOverride for Alabama
+                cur.execute("""
+                    INSERT INTO price_overrides (ItemCode, CostPriceOverride, edited_by)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(ItemCode) DO UPDATE SET
+                        CostPriceOverride = excluded.CostPriceOverride,
+                        edited_by = excluded.edited_by,
+                        edited_at = datetime('now')
+                """, (item_code, price_val, session.get("username", "admin")))
         else:
             # Upsert SellingPriceOverride
             cur.execute("""

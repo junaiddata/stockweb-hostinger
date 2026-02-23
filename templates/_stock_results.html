@@ -113,6 +113,7 @@
                                     class="mini-btn"
                                     data-item-code="{{ item[0] }}"
                                     data-branch="{{ branch }}"
+                                    data-field="cost"
                                     onclick="startEditMinPrice(this)">
                               Edit
                             </button>
@@ -125,7 +126,28 @@
                             <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
                           </span>
                         </td>
-                        <td class="right">{{ "%.2f"|format(item[5]) }} AED</td>
+                        <!-- Inline Edit: Selling Price (ALABAMA) -->
+                        <td class="right">
+                          <!-- VIEW MODE -->
+                          <span class="min-price-view" data-value="{{ item[5] }}">
+                            <span class="min-price-text">{{ "%.2f"|format(item[5]) }}</span> AED
+                            <button type="button"
+                                    class="mini-btn"
+                                    data-item-code="{{ item[0] }}"
+                                    data-branch="{{ branch }}"
+                                    data-field="selling"
+                                    onclick="startEditMinPrice(this)">
+                              Edit
+                            </button>
+                            <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+                          </span>
+                          <!-- EDIT MODE -->
+                          <span class="min-price-edit" style="display:none;">
+                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[5] }}" style="width:110px;">
+                            <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+                            <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+                          </span>
+                        </td>
                         {% else %}
                           <td class="right">{{ "%.2f"|format(item[4]) }} AED</td>
                           <td class="right">{{ "%.2f"|format(item[5]) }} AED</td>

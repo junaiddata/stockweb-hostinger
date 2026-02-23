@@ -657,6 +657,7 @@
 
           const itemCode = viewBtn.dataset.itemCode;
           const branch = viewBtn.dataset.branch;
+          const field = viewBtn.dataset.field || 'cost';  // For ALABAMA: 'cost' or 'selling'
 
           let raw = String(input.value || '').trim();
           if (raw === '') raw = '0';
@@ -669,11 +670,14 @@
 
           if (status) { status.textContent = 'Saving…'; status.style.color = ''; }
 
+          const body = { branch, item_code: itemCode, min_price };
+          if (branch === 'ALABAMA') body.field = field;
+
           try {
             const res = await fetch('/api/min-price', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ branch, item_code: itemCode, min_price })
+              body: JSON.stringify(body)
             });
             const data = await res.json();
             const newVal = (data.min_price ?? data.price ?? min_price);
