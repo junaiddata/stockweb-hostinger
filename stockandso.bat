@@ -1,28 +1,22 @@
 @echo off
 REM ============================================
-REM Stock & Sales Orders Sync Launcher
+REM Stock & Sales Orders - VPS Sync Mode
 REM ============================================
-REM - Runs stock sync from current directory
-REM - Runs sales orders sync from another folder
-REM - No directory changes
-REM - No Python code changes
+REM Stock sync now runs on VPS via cron (manage.py sync_all).
+REM PC only needs to run the SSH tunnel so VPS can reach the API.
+REM
+REM Run this on Office PC (replace with your values):
+REM   ssh -N -R 8443:192.168.1.103:80 user@VPS_IP
+REM
+REM Sales orders sync (if used) - run from its folder.
 REM ============================================
 
-echo Starting background sync services...
+echo VPS Sync Mode - No local sync needed.
 echo.
-
-REM --- Stock sync (current directory) ---
-echo Starting Stock Sync Service...
-start "" pythonw.exe sync_stock_pc.py
-
-REM --- Sales orders sync (absolute path) ---
-echo Starting Sales Orders Sync Service...
-start "" pythonw.exe "D:\dataanalyst\salesorder-web\salesorder\sync_salesorders_pc.py"
-
+echo Ensure SSH tunnel is running on this PC:
+echo   ssh -N -R 8443:192.168.1.103:80 user@VPS_IP
 echo.
-echo Both services started successfully.
-echo.
-echo To stop them, open Task Manager and end pythonw.exe
+echo Stock sync runs on VPS via: python manage.py sync_all
 echo.
 
 pause

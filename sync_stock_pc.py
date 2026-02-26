@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-PC-based sync script to fetch stock from local API and push to VPS.
-This script runs on your local PC and can access http://192.168.1.103/IntegrationApi/api/Stock
+DEPRECATED: Stock sync now runs on VPS via cron (manage.py sync_all).
+PC only needs to run the SSH tunnel. See .env.example and VPS_SYNC_DEPLOY.md.
 
-WORKFLOW:
-1. PC script fetches data from local API (192.168.1.103)
-2. PC script sends data to VPS via HTTP API endpoint
-3. VPS updates its databases
+Legacy: PC-based sync - fetches from local API and pushes to VPS.
 """
 
 import sys

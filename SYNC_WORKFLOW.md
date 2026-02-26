@@ -1,6 +1,12 @@
-# Stock Sync Workflow - PC to VPS
+# Stock Sync Workflow
 
-## Complete Workflow Explanation
+**Current mode: VPS Sync** - Sync runs on VPS via cron (`manage.py sync_all`). PC only runs SSH tunnel. See [VPS_SYNC_DEPLOY.md](VPS_SYNC_DEPLOY.md).
+
+---
+
+## Legacy: PC to VPS (Deprecated)
+
+The following describes the old PC-push workflow. Use VPS sync instead.
 
 ### Setup Overview
 

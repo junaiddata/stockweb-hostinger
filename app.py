@@ -3,6 +3,13 @@ import sqlite3
 import pandas as pd
 import os
 from flask import Flask, request, render_template, redirect, url_for, session, flash, Response
+
+# Load .env for API_BASE_URL, API_TIMEOUT (VPS sync via tunnel)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 from werkzeug.security import check_password_hash, generate_password_hash
 import requests
 from datetime import datetime
@@ -652,7 +659,16 @@ WAREHOUSE_MAPPING = {
     "08": {"branch": "RASALKHORE", "column": "Stock Quantity"},
 }
 
-API_BASE_URL = "http://192.168.1.103/IntegrationApi/api/Stock"
+# API URL for stock sync: from env (VPS uses localhost:8443 via SSH tunnel) or fallback
+_api_host = os.environ.get("API_BASE_HOST", "").rstrip("/")
+_api_url = os.environ.get("API_BASE_URL", "")
+if _api_url:
+    API_BASE_URL = _api_url
+elif _api_host:
+    API_BASE_URL = f"{_api_host}/IntegrationApi/api/Stock"
+else:
+    API_BASE_URL = "http://192.168.1.103/IntegrationApi/api/Stock"
+API_TIMEOUT = int(os.environ.get("API_TIMEOUT", "60"))
 
 def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
     """
@@ -673,9 +689,9 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
     stock_column = mapping["column"]
     
     try:
-        # Call API
+        # Call API (VPS reaches via localhost:8443 when SSH tunnel is active)
         payload = {"Warehouse": warehouse_code, "Active": "Y"}
-        response = requests.post(API_BASE_URL, json=payload, timeout=30)
+        response = requests.post(API_BASE_URL, json=payload, timeout=API_TIMEOUT)
         response.raise_for_status()
         
         api_data = response.json()
@@ -898,6 +914,10 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
         
         return True, items_updated, None
         
+    except requests.exceptions.ConnectionError as e:
+        return False, 0, f"Connection failed - check SSH tunnel is running: {str(e)}"
+    except requests.exceptions.Timeout as e:
+        return False, 0, f"API timeout ({API_TIMEOUT}s) - tunnel or API may be slow: {str(e)}"
     except requests.RequestException as e:
         return False, 0, f"API request failed: {str(e)}"
     except sqlite3.Error as e:
@@ -2386,6 +2406,11 @@ def _process_sync_in_background(data):
         finally:
             with _sync_lock:
                 _sync_in_progress.pop(warehouse_code, None)
+
+@app.route("/settings/sync/ping/", methods=["GET"])
+def sync_ping():
+    """Simple ping endpoint to test routing and that the app is reachable."""
+    return jsonify({"ok": True})
 
 @app.route("/api/sync-stock", methods=["POST"])
 def api_sync_stock():
