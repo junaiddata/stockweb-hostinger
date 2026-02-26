@@ -835,9 +835,12 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
                 final_description = description if description else existing.get("Description", "")
                 final_manufacturer = manufacturer if manufacturer else existing.get("Manufacturer Name", "")
                 final_whs_code = whs_code if whs_code else existing.get("Warehouse Code", "")
-                # Always use AvgPrice from API as cost price (even if 0, it's the actual cost from API)
-                # Round to 2 decimal places
-                final_cost_price = round(avg_price, 2)
+                # Cost price: only update from API for Warehouse 01 (Stock Quantity). For 02-07 preserve existing (Warehouse 01) cost.
+                if stock_column == "Stock Quantity":
+                    final_cost_price = round(avg_price, 2)
+                else:
+                    existing_cost = existing.get("CostPrice", 0) or 0
+                    final_cost_price = round(float(existing_cost), 2)
                 
                 row_data = {
                     "ItemCode": item_code,
@@ -848,7 +851,7 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
                     "Stock Quantity": on_hand if stock_column == "Stock Quantity" else existing.get("Stock Quantity", 0),
                     "Free Stock": existing.get("Free Stock", 0),
                     "Selling Price": round(selling_price, 2) if selling_price > 0 else round(existing.get("Selling Price", 0), 2),
-                    "CostPrice": final_cost_price,  # Always use AvgPrice from API (rounded to 2 decimals)
+                    "CostPrice": final_cost_price,
                     "AJMAN": on_hand if stock_column == "AJMAN" else existing.get("AJMAN", 0),
                     "NAH": on_hand if stock_column == "NAH" else existing.get("NAH", 0),
                     "DEIRA": on_hand if stock_column == "DEIRA" else existing.get("DEIRA", 0),
