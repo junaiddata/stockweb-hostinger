@@ -527,6 +527,19 @@
     </form>
         </div>
 
+        <!-- Cleanup Sync Card (Admin only) -->
+        <div class="card" style="margin-top: 24px; border-color: rgba(255, 152, 0, 0.3);">
+            <h2 class="card-title">🧹 Cleanup Sync</h2>
+            <p class="card-description">
+                Remove items not in warehouse 01. Fetches from API warehouse 01 and deletes any items not in that list from both DIP and RASALKHORE. Use after sync to show only items that exist in the API.
+            </p>
+            <form action="{{ url_for('admin_cleanup_sync') }}" method="post" onsubmit="return confirm('This will delete items not in the API. Run a sync first to ensure API is reachable. Continue?');">
+                <button type="submit" class="btn-sync" style="background: linear-gradient(135deg, #ff9800, #f57c00);">
+                    <span>🧹</span> Cleanup Stale Items
+                </button>
+            </form>
+        </div>
+
         <a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
     </div>
 

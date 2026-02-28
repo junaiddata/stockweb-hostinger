@@ -931,19 +931,127 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
 def sync_all_warehouses_from_api(keep_admin_prices=True):
     """
     Sync stock data from API for all warehouses (01-08).
-    
-    Returns:
-        dict: Results for each warehouse {"01": (success, count, error), ...}
+    Uses _global_sync_lock to prevent concurrent DB writes with cleanup or PC sync.
     """
-    results = {}
-    for warehouse_code in sorted(WAREHOUSE_MAPPING.keys()):
-        success, count, error = sync_stock_from_api(warehouse_code, keep_admin_prices)
-        results[warehouse_code] = {
-            "success": success,
-            "items_updated": count,
-            "error": error
-        }
-    return results
+    with _global_sync_lock:
+        results = {}
+        for warehouse_code in sorted(WAREHOUSE_MAPPING.keys()):
+            success, count, error = sync_stock_from_api(warehouse_code, keep_admin_prices)
+            results[warehouse_code] = {
+                "success": success,
+                "items_updated": count,
+                "error": error
+            }
+        return results
+
+
+def _fetch_item_codes_from_api(warehouse_code):
+    """Fetch ItemCodes from API for a warehouse. Returns set of ItemCode strings, or empty set on error."""
+    try:
+        payload = {"Warehouse": warehouse_code, "Active": "Y"}
+        response = requests.post(API_BASE_URL, json=payload, timeout=API_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        if not data or "Data" not in data:
+            return set()
+        items = data.get("Data", [])
+        return {str(item.get("ItemCode", "")).strip() for item in items if str(item.get("ItemCode", "")).strip()}
+    except Exception:
+        return set()
+
+
+def cleanup_sync_remove_stale_items():
+    """
+    Remove items from DB that are no longer in the API.
+    Uses warehouse 01 as source of truth (most items are same across warehouses).
+    Deletes from both DIP and RASALKHORE any items not in warehouse 01.
+    Uses _global_sync_lock to prevent concurrent DB writes with sync.
+    Returns (dip_deleted, ras_deleted, error_msg).
+    """
+    # 1. Fetch from API warehouse 01 only (primary source - most items are same across warehouses)
+    wh01_codes = _fetch_item_codes_from_api("01")
+    
+    # 2. SAFETY: Require warehouse 01 to return data before cleanup
+    if not wh01_codes:
+        return 0, 0, "Warehouse 01 returned no items. Skipping cleanup to prevent accidental full delete."
+    
+    valid_item_codes = wh01_codes
+    
+    dip_deleted = 0
+    ras_deleted = 0
+    
+    # 3. Acquire global lock - blocks sync (in-app and PC) and prevents DB lock contention
+    with _global_sync_lock:
+        try:
+            dip_db = DB_PATHS["DIP"]
+            ras_db = DB_PATHS["RASALKHORE"]
+            
+            def delete_stale(db_path, valid_codes):
+                """Delete items not in valid_codes. Uses temp table to avoid SQLite param limit."""
+                with get_db_connection(db_path, timeout=60.0) as conn:
+                    cur = conn.cursor()
+                    # IMMEDIATE transaction: acquire write lock upfront, avoid deadlocks
+                    cur.execute("BEGIN IMMEDIATE")
+                    try:
+                        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_items'")
+                        if not cur.fetchone():
+                            return 0
+                        cur.execute("CREATE TEMP TABLE IF NOT EXISTS _cleanup_valid (ItemCode TEXT PRIMARY KEY)")
+                        cur.execute("DELETE FROM _cleanup_valid")
+                        cur.executemany("INSERT OR IGNORE INTO _cleanup_valid (ItemCode) VALUES (?)", [(c,) for c in valid_codes])
+                        cur.execute('DELETE FROM stock_items WHERE "ItemCode" NOT IN (SELECT ItemCode FROM _cleanup_valid)')
+                        deleted = cur.rowcount
+                        cur.execute("DROP TABLE IF EXISTS _cleanup_valid")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        raise
+                return deleted
+            
+            dip_deleted = delete_stale(dip_db, valid_item_codes)
+            ras_deleted = delete_stale(ras_db, valid_item_codes)
+            
+            # 4. WAL checkpoint to keep WAL file small after bulk delete
+            for db_path in (dip_db, ras_db):
+                try:
+                    with get_db_connection(db_path, timeout=10.0) as ckpt:
+                        ckpt.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
+            
+            return dip_deleted, ras_deleted, None
+        except Exception as e:
+            return dip_deleted, ras_deleted, str(e)
+
+
+@app.route("/admin/cleanup-sync", methods=["POST"])
+def admin_cleanup_sync():
+    """Remove items from DB that are no longer in the API. Admin only."""
+    global _cleanup_in_progress
+    if "username" not in session:
+        flash("Please login to use Cleanup Sync", "danger")
+        return redirect(url_for("login"))
+    
+    with _sync_lock:
+        if _cleanup_in_progress:
+            flash("Cleanup already in progress. Please wait.", "warning")
+            return redirect(url_for("upload_file"))
+        if _sync_in_progress:
+            flash("Sync is in progress. Please wait for it to finish before cleanup.", "warning")
+            return redirect(url_for("upload_file"))
+        _cleanup_in_progress = True
+    
+    try:
+        dip_deleted, ras_deleted, err = cleanup_sync_remove_stale_items()
+        if err:
+            flash(f"Cleanup failed: {err}", "danger")
+        else:
+            flash(f"Cleanup complete: {dip_deleted} items removed from DIP, {ras_deleted} items removed from RASALKHORE.", "success")
+    finally:
+        with _sync_lock:
+            _cleanup_in_progress = False
+    return redirect(url_for("upload_file"))
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -2132,7 +2240,8 @@ VPS_API_KEY = "rLEkUZQiljwQWPS5ZJ8m6zawpsr9QUvRqYka-hj7fBw"  # For testing. Chan
 # Background sync processing - ONE sync at a time to avoid DB locks
 _sync_lock = threading.Lock()
 _sync_in_progress = {}
-_global_sync_lock = threading.Lock()  # Serialize all syncs (warehouses 01-08 share DIP DB)
+_global_sync_lock = threading.Lock()  # Serialize all syncs and cleanup (warehouses 01-08 share DIP DB)
+_cleanup_in_progress = False
 
 def _process_sync_in_background(data):
     """Process sync in background thread. Only one sync runs at a time to prevent DB locks."""
