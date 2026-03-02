@@ -415,7 +415,7 @@
             <h1 class="page-title">Upload / Sync Stock</h1>
             <p class="page-subtitle">Sync from API or upload Excel file</p>
         </header>
-        
+
         {% if api_sync_results %}
         <!-- API Sync Results -->
         <div class="results-card">
@@ -487,14 +487,12 @@
             
             <form action="{{ url_for('upload_file') }}" method="post">
                 <input type="hidden" name="sync_from_api" value="1">
-                
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" name="keep_admin_prices" checked id="keep_admin_prices_api">
                         <span>Preserve admin-edited prices</span>
                     </label>
                 </div>
-                
                 <button type="submit" class="btn-sync">
                     <span>🔄</span> Sync from API
                 </button>
@@ -515,14 +513,12 @@
                 <div class="file-input-wrapper">
                     <input type="file" name="file" class="file-input" required accept=".xlsx,.xls">
                 </div>
-
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" name="keep_admin_prices" checked id="keep_admin_prices_excel">
                         <span>Preserve admin-edited prices</span>
-        </label>
+                    </label>
                 </div>
-                
                 <button type="submit" class="btn-upload">Upload Excel</button>
     </form>
         </div>
@@ -548,28 +544,20 @@
         function setupCheckboxConfirm(checkboxId) {
             const cb = document.getElementById(checkboxId);
             if (!cb) return;
-            
             let previousChecked = cb.checked;
-
             cb.addEventListener('change', function() {
                 const nowChecked = cb.checked;
-
                 let message;
                 if (nowChecked) {
-                    message = "✓ Admin-edited prices will be PRESERVED.\n\nNew prices from API/Excel will NOT overwrite prices you've changed in the web app.";
+                    message = "✓ Admin-edited prices will be PRESERVED.";
                 } else {
-                    message = "⚠️ Admin-edited prices will be OVERWRITTEN.\n\nNew prices from API/Excel WILL replace all prices, including those you've changed in the web app.\n\nAre you sure?";
+                    message = "⚠️ Admin-edited prices will be OVERWRITTEN with API/Excel prices.\n\nAre you sure?";
                 }
-
                 const ok = confirm(message);
-                if (!ok) {
-                    cb.checked = previousChecked;
-                } else {
-                    previousChecked = nowChecked;
-                }
+                if (!ok) cb.checked = previousChecked;
+                else previousChecked = nowChecked;
             });
         }
-        
         setupCheckboxConfirm('keep_admin_prices_api');
         setupCheckboxConfirm('keep_admin_prices_excel');
     </script>

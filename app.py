@@ -447,14 +447,24 @@ def ensure_brand_margins_table(db_path: str):
                     CREATE TABLE IF NOT EXISTS brand_margins (
                         brand_name TEXT PRIMARY KEY,
                         margin_percent REAL DEFAULT 15.0,
+                        use_admin_price INTEGER DEFAULT 1,
                         edited_by TEXT,
                         edited_at TEXT DEFAULT (datetime('now'))
                     )
                 """)
+                # Add use_admin_price if missing (migration)
+                cols = [r[1] for r in cur.execute("PRAGMA table_info(brand_margins)").fetchall()]
+                if "use_admin_price" not in cols:
+                    try:
+                        cur.execute("ALTER TABLE brand_margins ADD COLUMN use_admin_price INTEGER DEFAULT 1")
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" not in str(e).lower():
+                            raise
+                    cur.execute("UPDATE brand_margins SET use_admin_price = 1 WHERE use_admin_price IS NULL")
                 # Insert default margin row if not exists
                 cur.execute("""
-                    INSERT OR IGNORE INTO brand_margins (brand_name, margin_percent, edited_by)
-                    VALUES ('__DEFAULT__', 15.0, 'system')
+                    INSERT OR IGNORE INTO brand_margins (brand_name, margin_percent, use_admin_price, edited_by)
+                    VALUES ('__DEFAULT__', 15.0, 1, 'system')
                 """)
             break
         except sqlite3.OperationalError as e:
@@ -798,6 +808,39 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
                     "Free Stock": row[14] or 0,
                 }
         
+        # Load brand margins and use_admin_price for DIP/RASALKHORE
+        dip_db = DB_PATHS["DIP"]
+        ensure_brand_margins_table(dip_db)
+        brand_margins = {}
+        brand_margins_lower = {}
+        brand_use_admin = {}
+        brand_use_admin_lower = {}
+        default_margin = DEFAULT_MARGIN_PERCENT
+        use_admin_default = True
+        if branch in ("DIP", "RASALKHORE"):
+            with get_db_connection(dip_db, timeout=5.0) as mconn:
+                mcur = mconn.cursor()
+                mcur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1) FROM brand_margins")
+                for row in mcur.fetchall():
+                    if row[0] == "__DEFAULT__":
+                        default_margin = row[1]
+                        use_admin_default = bool(row[2])
+                    else:
+                        brand_margins[row[0]] = row[1]
+                        brand_margins_lower[row[0].lower()] = (row[0], row[1])
+                        brand_use_admin[row[0]] = bool(row[2])
+                        brand_use_admin_lower[row[0].lower()] = bool(row[2])
+        
+        def _get_margin(mfg):
+            if not mfg: return default_margin
+            if mfg in brand_margins: return brand_margins[mfg]
+            k = mfg.lower()
+            return brand_margins_lower[k][1] if k in brand_margins_lower else default_margin
+        def _get_use_admin(mfg):
+            if not mfg: return use_admin_default
+            if mfg in brand_use_admin: return brand_use_admin[mfg]
+            return brand_use_admin_lower.get(mfg.lower(), use_admin_default)
+        
         # Process API items
         items_to_insert = []
         items_updated = 0
@@ -815,15 +858,15 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             on_hand = _to_float(item.get("OnHand", 0), 0.0)
             avg_price = _to_float(item.get("AvgPrice", 0), 0.0)
             
-            # Calculate selling price: 15% margin using division method
-            # 15% margin = Cost / 0.85
-            calculated_selling_price = round(avg_price / 0.85, 2) if avg_price > 0 else 0.0
+            # Selling price: use admin override if brand allows, else use brand margin
+            margin_pct = _get_margin(manufacturer)
+            margin_divisor = 1 - (margin_pct / 100)
+            calc_price = round(avg_price / margin_divisor, 2) if avg_price > 0 and margin_divisor > 0 else 0.0
             
-            # Use existing override if available, otherwise use calculated price
-            if keep_admin_prices and item_code in existing_overrides:
+            if keep_admin_prices and _get_use_admin(manufacturer) and item_code in existing_overrides:
                 selling_price = round(existing_overrides[item_code], 2)
             else:
-                selling_price = calculated_selling_price
+                selling_price = calc_price
             
             # Build row data
             if branch == "DIP":
@@ -2333,17 +2376,34 @@ def _process_sync_in_background(data):
             brand_margins_lower = {}
             default_margin = DEFAULT_MARGIN_PERCENT
             
+            use_admin_price_default = True
+            brand_use_admin_price = {}
+            brand_use_admin_price_lower = {}
             with get_db_connection(dip_db, timeout=10.0) as margin_conn:
                 margin_cur = margin_conn.cursor()
-                margin_cur.execute("SELECT brand_name, margin_percent FROM brand_margins")
+                margin_cur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1) FROM brand_margins")
                 for row in margin_cur.fetchall():
                     if row[0] == "__DEFAULT__":
                         default_margin = row[1]
+                        use_admin_price_default = bool(row[2])
                     else:
                         brand_name = row[0]
                         margin = row[1]
+                        use_admin = bool(row[2])
                         brand_margins[brand_name] = margin
                         brand_margins_lower[brand_name.lower()] = (brand_name, margin)
+                        brand_use_admin_price[brand_name] = use_admin
+                        brand_use_admin_price_lower[brand_name.lower()] = use_admin
+            
+            def get_brand_use_admin_price(manufacturer_name):
+                if not manufacturer_name:
+                    return use_admin_price_default
+                if manufacturer_name in brand_use_admin_price:
+                    return brand_use_admin_price[manufacturer_name]
+                manufacturer_lower = manufacturer_name.lower()
+                if manufacturer_lower in brand_use_admin_price_lower:
+                    return brand_use_admin_price_lower[manufacturer_lower]
+                return use_admin_price_default
             
             def get_brand_margin_case_insensitive(manufacturer_name):
                 if not manufacturer_name:
@@ -2395,7 +2455,8 @@ def _process_sync_in_background(data):
                 
                 cost_for_margin = cost_price_overrides.get(item_code, avg_price)
                 
-                if data.get("keep_admin_prices", True) and item_code in existing_overrides:
+                use_admin = get_brand_use_admin_price(manufacturer)
+                if data.get("keep_admin_prices", True) and use_admin and item_code in existing_overrides:
                     selling_price = existing_overrides[item_code]
                 elif stock_column == "Stock Quantity":
                     margin_percent = get_brand_margin_case_insensitive(manufacturer)
@@ -3063,7 +3124,7 @@ def admin_brand_margins():
         action = request.form.get("action")
         
         if action == "update_default":
-            # Update default margin
+            # Update default margin (use_admin_price is updated via API toggle)
             try:
                 new_default = float(request.form.get("default_margin", 15.0))
                 cur.execute("""
@@ -3170,10 +3231,11 @@ def admin_brand_margins():
                     message = "Please upload an Excel file (.xlsx or .xls)"
                     message_type = "danger"
     
-    # Get default margin
-    cur.execute("SELECT margin_percent FROM brand_margins WHERE brand_name = '__DEFAULT__'")
+    # Get default margin and use_admin_price
+    cur.execute("SELECT margin_percent, COALESCE(use_admin_price, 1) FROM brand_margins WHERE brand_name = '__DEFAULT__'")
     row = cur.fetchone()
     default_margin = row[0] if row else 15.0
+    default_use_admin_price = bool(row[1]) if row else True
     
     # Get all unique manufacturers from stock_items
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != "" ORDER BY "Manufacturer Name"')
@@ -3181,9 +3243,9 @@ def admin_brand_margins():
     all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
     
     # Get all brand margins (excluding default)
-    cur.execute("SELECT brand_name, margin_percent, edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
+    cur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
     brand_margins = cur.fetchall()
-    brand_margins_dict = {row[0]: {"margin": row[1], "edited_by": row[2], "edited_at": row[3]} for row in brand_margins}
+    brand_margins_dict = {row[0]: {"margin": row[1], "use_admin_price": bool(row[2]), "edited_by": row[3], "edited_at": row[4]} for row in brand_margins}
     
     # Build list of all brands with their margins
     brands_list = []
@@ -3192,6 +3254,7 @@ def admin_brand_margins():
             brands_list.append({
                 "name": mfg,
                 "margin": brand_margins_dict[mfg]["margin"],
+                "use_admin_price": brand_margins_dict[mfg]["use_admin_price"],
                 "is_custom": True,
                 "edited_by": brand_margins_dict[mfg]["edited_by"],
                 "edited_at": brand_margins_dict[mfg]["edited_at"]
@@ -3200,6 +3263,7 @@ def admin_brand_margins():
             brands_list.append({
                 "name": mfg,
                 "margin": default_margin,
+                "use_admin_price": default_use_admin_price,
                 "is_custom": False,
                 "edited_by": None,
                 "edited_at": None
@@ -3214,10 +3278,41 @@ def admin_brand_margins():
     return render_template("admin_brand_margins.html",
                          brands=brands_list,
                          default_margin=default_margin,
+                         default_use_admin_price=default_use_admin_price,
                          search_query=search_query,
                          message=message,
                          message_type=message_type,
                          total_brands=len(all_manufacturers))
+
+
+@app.route("/api/brand-use-admin-price", methods=["POST"])
+def api_update_brand_use_admin_price():
+    """API endpoint to toggle use_admin_price for a brand. Default: use admin-edited price. OFF: use brand margin."""
+    if "username" not in session:
+        return jsonify(ok=False, error="Unauthorized"), 401
+    data = request.get_json(silent=True) or {}
+    brand_name = (data.get("brand_name") or "").strip()
+    value = data.get("use_admin_price")
+    if not brand_name:
+        return jsonify(ok=False, error="Missing brand name"), 400
+    try:
+        use_admin = bool(value)
+    except (ValueError, TypeError):
+        return jsonify(ok=False, error="Invalid value"), 400
+    db_path = DB_PATHS["DIP"]
+    ensure_brand_margins_table(db_path)
+    with get_db_connection(db_path, timeout=10.0) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO brand_margins (brand_name, margin_percent, use_admin_price, edited_by)
+            VALUES (?, 15.0, ?, ?)
+            ON CONFLICT(brand_name) DO UPDATE SET
+                use_admin_price = ?,
+                edited_by = ?,
+                edited_at = datetime('now')
+        """, (brand_name, 1 if use_admin else 0, session.get("username", "admin"),
+              1 if use_admin else 0, session.get("username", "admin")))
+    return jsonify(ok=True, brand_name=brand_name, use_admin_price=use_admin)
 
 
 @app.route("/api/brand-margin", methods=["POST"])
@@ -3243,20 +3338,16 @@ def api_update_brand_margin():
     db_path = DB_PATHS["DIP"]
     ensure_brand_margins_table(db_path)
     
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    
-    cur.execute("""
-        INSERT INTO brand_margins (brand_name, margin_percent, edited_by)
-        VALUES (?, ?, ?)
-        ON CONFLICT(brand_name) DO UPDATE SET
-            margin_percent = excluded.margin_percent,
-            edited_by = excluded.edited_by,
-            edited_at = datetime('now')
-    """, (brand_name, margin, session.get("username", "admin")))
-    
-    conn.commit()
-    conn.close()
+    with get_db_connection(db_path, timeout=10.0) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO brand_margins (brand_name, margin_percent, edited_by)
+            VALUES (?, ?, ?)
+            ON CONFLICT(brand_name) DO UPDATE SET
+                margin_percent = excluded.margin_percent,
+                edited_by = excluded.edited_by,
+                edited_at = datetime('now')
+        """, (brand_name, margin, session.get("username", "admin")))
     
     return jsonify(ok=True, brand_name=brand_name, margin_percent=margin)
 

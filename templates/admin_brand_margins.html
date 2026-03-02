@@ -321,6 +321,14 @@
                             <button type="submit" class="btn btn-primary">Update Default</button>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="default_use_admin_price" data-brand="__DEFAULT__"
+                                   {% if default_use_admin_price %}checked{% endif %}
+                                   onchange="updateUseAdminPrice(this)">
+                            <span>Use admin-edited price (default). Uncheck to use brand margin instead.</span>
+                        </label>
+                    </div>
                 </form>
             </div>
             
@@ -360,6 +368,7 @@
                             <th>#</th>
                             <th>Brand / Manufacturer</th>
                             <th>Margin %</th>
+                            <th>Use Admin Price</th>
                             <th>Status</th>
                             <th>Last Updated</th>
                             <th>Actions</th>
@@ -380,6 +389,15 @@
                                     <span>%</span>
                                     <span class="save-status" id="status-{{ loop.index }}"></span>
                                 </div>
+                            </td>
+                            <td>
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" class="use-admin-price-toggle" 
+                                           data-brand="{{ brand.name }}"
+                                           {% if brand.use_admin_price %}checked{% endif %}
+                                           onchange="updateUseAdminPrice(this)">
+                                    <span>Admin price</span>
+                                </label>
                             </td>
                             <td>
                                 {% if brand.is_custom %}
@@ -491,6 +509,30 @@
             .catch(err => {
                 statusEl.textContent = 'Error';
                 statusEl.className = 'save-status error';
+            });
+        }
+
+        function updateUseAdminPrice(checkbox) {
+            const brand = checkbox.dataset.brand;
+            const useAdmin = checkbox.checked;
+            fetch('/api/brand-use-admin-price', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    brand_name: brand,
+                    use_admin_price: useAdmin
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.ok) {
+                    checkbox.checked = !useAdmin;
+                    alert(data.error || 'Failed to save');
+                }
+            })
+            .catch(() => {
+                checkbox.checked = !useAdmin;
+                alert('Failed to save');
             });
         }
     </script>
