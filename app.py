@@ -3085,6 +3085,8 @@ def device_pending():
         row = c.fetchone()
         conn.close()
         if row and row[0] == 'approved':
+            # Update cache so middleware allows the redirect to home
+            _device_token_cache[token] = {"status": "approved", "ts": time.time()}
             return redirect(url_for('home'))
 
     return render_template("device_pending.html")
@@ -3112,6 +3114,8 @@ def approve_devices():
         elif action == "delete":
             c.execute("DELETE FROM trusted_devices WHERE token=?", (token_to_act,))
             flash("Device removed.", "warning")
+        if token_to_act and token_to_act in _device_token_cache:
+            del _device_token_cache[token_to_act]
         conn.commit()
 
     # Get List
