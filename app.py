@@ -571,9 +571,9 @@ def get_default_margin(db_path: str) -> float:
 def fetch_sold_map():
     """
     Returns: dict { "ITEMCODE": total_qty_sold }
-    Pulls from https://do.junaidworld.com/api/items/unique-qty
+    Pulls from https://salesorder.junaidworld.com/api/item-analysis-totals/
     """
-    url = "https://do.junaidworld.com/api/items/unique-qty"
+    url = "https://salesorder.junaidworld.com/api/item-analysis-totals/"
     try:
         r = requests.get(url, timeout=5)
         r.raise_for_status()
@@ -620,7 +620,7 @@ def fetch_sold_breakdown_map():
     if _sold_map_cache_time and (current_time - _sold_map_cache_time) < SOLD_MAP_CACHE_TTL:
         return _sold_map_cache
     
-    url = "https://do.junaidworld.com/api/items/unique-qty"
+    url = "https://salesorder.junaidworld.com/api/item-analysis-totals/"
     try:
         # OPTIMIZATION: Reduced timeout to 2s, fail fast to prevent blocking
         r = requests.get(url, timeout=2)
