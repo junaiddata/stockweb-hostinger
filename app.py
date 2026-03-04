@@ -1427,6 +1427,8 @@ def stock_page(branch):
             # make sure overrides table exists for JOINs
             ensure_override_table(db_path)
             ensure_brand_margins_table(DB_PATHS["DIP"])
+            if branch == "RASALKHORE":
+                ensure_override_table(DB_PATHS["DIP"])  # DIP price_overrides for DIP+5% calc
             
             # Use connection helper with retry logic
             try:
@@ -1527,7 +1529,7 @@ def stock_page(branch):
                             col_desc = 'si."Description"'
                             col_mfg  = 'si."Manufacturer Name"'
                         else:
-                            # RASALKHORE page (or any other non-ALABAMA branch)
+                            # RASALKHORE page: DIP price + 5% (no price overrides)
                             ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
                             dip_db_path = os.path.abspath(DB_PATHS["DIP"])
                             cursor.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
@@ -1540,14 +1542,15 @@ def stock_page(branch):
                             si."Warehouse Code",
                             si."Stock Quantity",
                             si."Free Stock",
-                            CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
-     WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
+                            ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+     WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
+     ELSE COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") END) * 1.05, 2) AS "Selling Price",
                             si."CostPrice"
                                 FROM stock_items si
-                                LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-                                LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
+                                LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = si."ItemCode"
+                                LEFT JOIN dip.price_overrides dip_po ON dip_po.ItemCode = dip_si."ItemCode"
+                                LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(COALESCE(dip_si."Manufacturer Name", si."Manufacturer Name")))
                                 WHERE
                             """
                             col_item = 'si."ItemCode"'
@@ -1872,18 +1875,15 @@ def item_detail(branch, item_code):
                     COALESCE(rsi."Stock Quantity", 0)
                 ) AS TotalStock,            -- 12
                 
-                -- PRICE LOGIC: when use_admin OFF, calculate from cost+margin; else use overrides
-                CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                -- PRICE LOGIC: DIP price + 5% (no retail overrides)
+                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
                      THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
                      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-                     ELSE COALESCE(ro.SellingPriceOverride, po.SellingPriceOverride, si."Selling Price") END AS MinPrice, -- 13
+                     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END) * 1.05, 2) AS MinPrice, -- 13
                 si."CostPrice"              -- 14
             FROM stock_items si
             LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(si."ItemCode")
             LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
-            LEFT JOIN retail_overrides ro 
-                ON TRIM(ro.ItemCode) = TRIM(si."ItemCode") 
-                AND ro.Branch = 'ALLSTORES'
             LEFT JOIN price_overrides po
                 ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
             WHERE TRIM(si."ItemCode") = TRIM(?)
@@ -2034,6 +2034,9 @@ def item_detail(branch, item_code):
 
     ensure_override_table(db_path)
     ensure_brand_margins_table(db_path)
+    if branch == "RASALKHORE":
+        ensure_override_table(DB_PATHS["DIP"])
+        ensure_brand_margins_table(DB_PATHS["DIP"])
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     if branch == "RASALKHORE":
@@ -2043,14 +2046,15 @@ def item_detail(branch, item_code):
             SELECT
                 si."ItemCode", si."Upc Code", si."Description", si."Manufacturer Name", si."Warehouse Code",
                 si."Stock Quantity", si."Free Stock",
-CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
-     WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
-                            si."CostPrice"
-                                FROM stock_items si
-                                LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
-            LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+     WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
+     ELSE COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") END) * 1.05, 2) AS "Selling Price",
+                si."CostPrice"
+            FROM stock_items si
+            LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = si."ItemCode"
+            LEFT JOIN dip.price_overrides dip_po ON dip_po.ItemCode = dip_si."ItemCode"
+            LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(COALESCE(dip_si."Manufacturer Name", si."Manufacturer Name")))
             WHERE TRIM(si."ItemCode") = TRIM(?)
         """, (item_code,))
     else:
@@ -2933,7 +2937,8 @@ def allstores():
         dip_db = DB_PATHS["DIP"]
         ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
 
-        # 1. Ensure table exists before querying
+        # 1. Ensure tables exist before querying
+        ensure_override_table(dip_db)
         ensure_retail_override_table(dip_db)
 
         conn = sqlite3.connect(dip_db)
@@ -2964,10 +2969,10 @@ def allstores():
                 COALESCE(si."QUSAIS", 0) +
                 COALESCE(rsi."Stock Quantity", 0)
               ) AS TotalStock,
-              CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+              ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(ro.SellingPriceOverride, si."Selling Price", 0) END AS MinPrice,
+     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END) * 1.05, 2) AS MinPrice,
               COALESCE(si."CostPrice", 0) AS CostPrice,
               CASE
                 WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
@@ -2977,9 +2982,7 @@ def allstores():
             FROM stock_items si
             LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
             LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
-            LEFT JOIN retail_overrides ro
-              ON TRIM(ro.ItemCode) = TRIM(si."ItemCode") 
-              AND ro.Branch = 'ALLSTORES'
+            LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
             WHERE {where_sql}
             {" AND (" + " + ".join([
                 'COALESCE(si."AJMAN", 0)',
