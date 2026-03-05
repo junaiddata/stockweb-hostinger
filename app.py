@@ -3303,16 +3303,9 @@ def admin_brand_margins():
     brand_margins = cur.fetchall()
     brand_margins_dict = {row[0]: {"margin": row[1], "use_admin_price": bool(row[2]), "edited_by": row[3], "edited_at": row[4]} for row in brand_margins}
     
-    # Merge: show brands from stock_items + brands from brand_margins (e.g. imported before items exist)
-    all_brand_names = sorted(
-        set(all_manufacturers) | set(brand_margins_dict.keys()),
-        key=lambda x: (x or "").lower()
-    )
-    all_brand_names = [b for b in all_brand_names if (b or "").strip().upper() not in HIDDEN_BRANDS]
-    
     # Build list of all brands with their margins
     brands_list = []
-    for mfg in all_brand_names:
+    for mfg in all_manufacturers:
         if mfg in brand_margins_dict:
             brands_list.append({
                 "name": mfg,
@@ -3345,7 +3338,7 @@ def admin_brand_margins():
                          search_query=search_query,
                          message=message,
                          message_type=message_type,
-                         total_brands=len(all_brand_names))
+                         total_brands=len(all_manufacturers))
 
 
 @app.route("/api/brand-use-admin-price", methods=["POST"])
