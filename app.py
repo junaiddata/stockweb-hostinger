@@ -106,36 +106,36 @@ def get_sse_queue(branch):
 
 @app.errorhandler(500)
 def handle_500(error):
-    """Return user-friendly message for database lock / server errors."""
+    """Return user-friendly message for database lock errors, real traceback for everything else."""
     import traceback
     import sys
     tb = traceback.format_exc()
-    # Log to stderr so gunicorn captures it (print may not reach logs on VPS)
     sys.stderr.write(f"[500 ERROR]\n{tb}\n")
     sys.stderr.flush()
-    # Check if database-related (Flask/WSGI may wrap the exception)
     exc = getattr(error, 'original_exception', error)
     msg = (str(exc) + tb).lower()
-    is_db_error = (
-        isinstance(exc, sqlite3.OperationalError) or
-        'locked' in msg or
-        'database' in msg or
-        'sqlite' in msg or
-        'operationalerror' in msg or
-        'busy' in msg
+    is_db_lock = (
+        isinstance(exc, sqlite3.OperationalError) and
+        ('locked' in str(exc).lower() or 'busy' in str(exc).lower())
     )
-    friendly = '''
-    <html><head><meta charset="utf-8"><title>Please Try Again</title></head>
-    <body style="font-family:sans-serif;text-align:center;padding:60px;background:#f5f5f5;">
-    <h2 style="color:#d32f2f;">Database is temporarily busy</h2>
-    <p>The server is processing a data sync. Please <a href="javascript:location.reload()">refresh the page</a> in a few seconds.</p>
-    <p style="color:#666;font-size:14px;">If this continues, try again in 1-2 minutes.</p>
+    if is_db_lock:
+        return '''
+        <html><head><meta charset="utf-8"><title>Please Try Again</title></head>
+        <body style="font-family:sans-serif;text-align:center;padding:60px;background:#f5f5f5;">
+        <h2 style="color:#d32f2f;">Database is temporarily busy</h2>
+        <p>The server is processing a data sync. Please <a href="javascript:location.reload()">refresh the page</a> in a few seconds.</p>
+        <p style="color:#666;font-size:14px;">If this continues, try again in 1-2 minutes.</p>
+        </body></html>
+        ''', 503
+    return f'''
+    <html><head><meta charset="utf-8"><title>Server Error</title></head>
+    <body style="font-family:monospace;padding:40px;background:#f5f5f5;">
+    <h2 style="color:#d32f2f;">500 Internal Server Error</h2>
+    <p><strong>Error:</strong> {str(exc)}</p>
+    <pre style="background:#fff;padding:20px;border:1px solid #ddd;overflow-x:auto;white-space:pre-wrap;">{tb}</pre>
+    <p style="color:#666;font-size:13px;">This traceback is shown because the error is not a database lock. Check the issue above.</p>
     </body></html>
-    '''
-    if is_db_error:
-        return friendly, 503
-    # Also show friendly message for any 500 - likely sync-related on VPS
-    return friendly, 503
+    ''', 500
 
 def broadcast_sse_update(branch, data):
     """Broadcast update to all SSE connections for a branch."""
