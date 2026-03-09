@@ -3352,9 +3352,17 @@ def api_get_brand_margins():
     cur = conn.cursor()
     cur.execute("SELECT margin_percent FROM brand_margins WHERE brand_name = '__DEFAULT__'")
     row = cur.fetchone()
-    default_margin = float(row[0]) if row else 15.0
+    try:
+        default_margin = float(row[0]) if row else 15.0
+    except (ValueError, TypeError):
+        default_margin = 15.0
     cur.execute("SELECT brand_name, margin_percent FROM brand_margins WHERE brand_name != '__DEFAULT__'")
-    custom_margins = {row[0]: float(row[1]) for row in cur.fetchall()}
+    custom_margins = {}
+    for row in cur.fetchall():
+        try:
+            custom_margins[row[0]] = float(row[1])
+        except (ValueError, TypeError):
+            custom_margins[row[0]] = default_margin
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
     all_manufacturers = [row[0] for row in cur.fetchall()]
     all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
