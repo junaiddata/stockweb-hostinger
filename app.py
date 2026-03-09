@@ -679,8 +679,6 @@ elif _api_host:
 else:
     API_BASE_URL = "http://192.168.1.103/IntegrationApi/api/Stock"
 API_TIMEOUT = int(os.environ.get("API_TIMEOUT", "60"))
-# API key for /api/brand-margins (optional; set in .env for Django/external apps)
-BRAND_MARGINS_API_KEY = os.environ.get("BRAND_MARGINS_API_KEY", "").strip()
 
 def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
     """
@@ -3345,14 +3343,7 @@ def admin_brand_margins():
 
 @app.route("/api/brand-margins", methods=["GET"])
 def api_get_brand_margins():
-    """API endpoint to get all brand margins as {BRAND: margin_percentage}. Auth: session or X-API-Key header."""
-    api_key = request.headers.get("X-API-Key", "").strip()
-    if BRAND_MARGINS_API_KEY and api_key == BRAND_MARGINS_API_KEY:
-        pass  # authorized
-    elif "username" in session:
-        pass  # authorized
-    else:
-        return jsonify({"error": "Unauthorized"}), 401
+    """API endpoint to get all brand margins as {BRAND: margin_percentage}. Public, no auth required."""
     db_path = DB_PATHS["DIP"]
     ensure_brand_margins_table(db_path)
     conn = sqlite3.connect(db_path)
