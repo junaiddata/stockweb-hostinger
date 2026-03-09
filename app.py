@@ -679,6 +679,8 @@ elif _api_host:
 else:
     API_BASE_URL = "http://192.168.1.103/IntegrationApi/api/Stock"
 API_TIMEOUT = int(os.environ.get("API_TIMEOUT", "60"))
+# API key for /api/brand-margins (optional; set in .env for Django/external apps)
+BRAND_MARGINS_API_KEY = os.environ.get("BRAND_MARGINS_API_KEY", "").strip()
 
 def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
     """
@@ -3339,6 +3341,35 @@ def admin_brand_margins():
                          message=message,
                          message_type=message_type,
                          total_brands=len(all_manufacturers))
+
+
+@app.route("/api/brand-margins", methods=["GET"])
+def api_get_brand_margins():
+    """API endpoint to get all brand margins as {BRAND: margin_percentage}. Auth: session or X-API-Key header."""
+    api_key = request.headers.get("X-API-Key", "").strip()
+    if BRAND_MARGINS_API_KEY and api_key == BRAND_MARGINS_API_KEY:
+        pass  # authorized
+    elif "username" in session:
+        pass  # authorized
+    else:
+        return jsonify({"error": "Unauthorized"}), 401
+    db_path = DB_PATHS["DIP"]
+    ensure_brand_margins_table(db_path)
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT margin_percent FROM brand_margins WHERE brand_name = '__DEFAULT__'")
+    row = cur.fetchone()
+    default_margin = float(row[0]) if row else 15.0
+    cur.execute("SELECT brand_name, margin_percent FROM brand_margins WHERE brand_name != '__DEFAULT__'")
+    custom_margins = {row[0]: float(row[1]) for row in cur.fetchall()}
+    cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
+    all_manufacturers = [row[0] for row in cur.fetchall()]
+    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
+    result = {}
+    for mfg in all_manufacturers:
+        result[mfg] = custom_margins.get(mfg, default_margin)
+    conn.close()
+    return jsonify(result)
 
 
 @app.route("/api/brand-use-admin-price", methods=["POST"])
