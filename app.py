@@ -192,7 +192,7 @@ def device_restriction_middleware():
     allowed_endpoints = [
         'login', 'register_device', 'device_pending', 'approve_devices',
         'admin_brand_margins', 'api_update_brand_margin', 'logout',
-        'logo_proxy', 'stock_api', 'api_sync_stock'
+        'logo_proxy', 'stock_api', 'api_sync_stock', 'api_get_brand_margins'
     ]
     
     if request.endpoint in allowed_endpoints:
@@ -3344,22 +3344,23 @@ def admin_brand_margins():
 @app.route("/api/brand-margins", methods=["GET"])
 def api_get_brand_margins():
     """API endpoint to get all brand margins as {BRAND: margin_percentage}. Public, no auth required."""
-    db_path = DB_PATHS["DIP"]
+    db_path = DB_PATHS.get("DIP")
+    if not db_path:
+        return jsonify({"error": "Database path not found"}), 500
     ensure_brand_margins_table(db_path)
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("SELECT margin_percent FROM brand_margins WHERE brand_name = '__DEFAULT__'")
-    row = cur.fetchone()
-    default_margin = float(row[0]) if row else 15.0
-    cur.execute("SELECT brand_name, margin_percent FROM brand_margins WHERE brand_name != '__DEFAULT__'")
-    custom_margins = {row[0]: float(row[1]) for row in cur.fetchall()}
-    cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
-    all_manufacturers = [row[0] for row in cur.fetchall()]
-    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
-    result = {}
-    for mfg in all_manufacturers:
-        result[mfg] = custom_margins.get(mfg, default_margin)
-    conn.close()
+    with get_db_connection(db_path, timeout=10.0) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT margin_percent FROM brand_margins WHERE brand_name = '__DEFAULT__'")
+        row = cur.fetchone()
+        default_margin = float(row[0]) if row else 15.0
+        cur.execute("SELECT brand_name, margin_percent FROM brand_margins WHERE brand_name != '__DEFAULT__'")
+        custom_margins = {row[0]: float(row[1]) for row in cur.fetchall()}
+        cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
+        all_manufacturers = [row[0] for row in cur.fetchall()]
+        all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
+        result = {}
+        for mfg in all_manufacturers:
+            result[mfg] = custom_margins.get(mfg, default_margin)
     return jsonify(result)
 
 
