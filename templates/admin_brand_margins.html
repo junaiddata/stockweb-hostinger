@@ -193,6 +193,10 @@
             background: rgba(158, 158, 158, 0.2);
             color: #9e9e9e;
         }
+        .badge-orphan {
+            background: rgba(239, 83, 80, 0.2);
+            color: #ef5350;
+        }
         .stats {
             display: flex;
             gap: 20px;
@@ -400,7 +404,9 @@
                                 </label>
                             </td>
                             <td>
-                                {% if brand.is_custom %}
+                                {% if brand.is_orphan is defined and brand.is_orphan %}
+                                <span class="badge badge-orphan">Orphan</span>
+                                {% elif brand.is_custom %}
                                 <span class="badge badge-custom">Custom</span>
                                 {% else %}
                                 <span class="badge badge-default">Default</span>

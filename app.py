@@ -3299,13 +3299,48 @@ def admin_brand_margins():
     all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
     
     # Get all brand margins (excluding default)
-    cur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
+    cur.execute("SELECT rowid, brand_name, margin_percent, COALESCE(use_admin_price, 1), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
     brand_margins = cur.fetchall()
-    brand_margins_dict = {row[0]: {"margin": row[1], "use_admin_price": bool(row[2]), "edited_by": row[3], "edited_at": row[4]} for row in brand_margins}
-    
-    # Build list of all brands with their margins
+
+    # Build case-insensitive lookup: key = lowercase brand name
+    brand_margins_dict = {}
+    brand_margins_by_lower = {}
+    for row in brand_margins:
+        rowid, bname, margin, use_admin, edited_by, edited_at = row
+        entry = {"margin": margin, "use_admin_price": bool(use_admin), "edited_by": edited_by, "edited_at": edited_at, "db_name": bname, "rowid": rowid}
+        brand_margins_dict[bname] = entry
+        lower_key = bname.strip().lower()
+        if lower_key not in brand_margins_by_lower:
+            brand_margins_by_lower[lower_key] = []
+        brand_margins_by_lower[lower_key].append(entry)
+
+    # Auto-cleanup: if a brand margin has a different case than the actual manufacturer,
+    # merge it (rename to match stock_items) and remove duplicates that cause search issues
+    mfg_lower_map = {m.strip().lower(): m for m in all_manufacturers}
+    orphan_cleaned = 0
+    for row in brand_margins:
+        rowid, bname, margin, use_admin, edited_by, edited_at = row
+        lower_key = bname.strip().lower()
+        actual_name = mfg_lower_map.get(lower_key)
+        if actual_name and bname != actual_name:
+            if actual_name in brand_margins_dict:
+                cur.execute("DELETE FROM brand_margins WHERE rowid = ?", (rowid,))
+            else:
+                cur.execute("UPDATE brand_margins SET brand_name = ? WHERE rowid = ?", (actual_name, rowid))
+                brand_margins_dict[actual_name] = brand_margins_dict.pop(bname, brand_margins_dict.get(actual_name))
+            orphan_cleaned += 1
+    if orphan_cleaned > 0:
+        conn.commit()
+        if not message:
+            message = f"Auto-fixed {orphan_cleaned} duplicate/mismatched brand margin(s) that caused duplicate items in search"
+            message_type = "warning"
+
+    # Build list of all brands with their margins (case-insensitive match)
     brands_list = []
+    matched_lower_keys = set()
     for mfg in all_manufacturers:
+        lower_key = mfg.strip().lower()
+        matched_lower_keys.add(lower_key)
         if mfg in brand_margins_dict:
             brands_list.append({
                 "name": mfg,
@@ -3315,6 +3350,16 @@ def admin_brand_margins():
                 "edited_by": brand_margins_dict[mfg]["edited_by"],
                 "edited_at": brand_margins_dict[mfg]["edited_at"]
             })
+        elif lower_key in brand_margins_by_lower:
+            entry = brand_margins_by_lower[lower_key][0]
+            brands_list.append({
+                "name": mfg,
+                "margin": entry["margin"],
+                "use_admin_price": entry["use_admin_price"],
+                "is_custom": True,
+                "edited_by": entry["edited_by"],
+                "edited_at": entry["edited_at"]
+            })
         else:
             brands_list.append({
                 "name": mfg,
@@ -3323,6 +3368,20 @@ def admin_brand_margins():
                 "is_custom": False,
                 "edited_by": None,
                 "edited_at": None
+            })
+
+    # Show orphan brand margins (entries that don't match any manufacturer) so user can delete them
+    for bname, entry in brand_margins_dict.items():
+        lower_key = bname.strip().lower()
+        if lower_key not in matched_lower_keys and lower_key not in {h.lower() for h in HIDDEN_BRANDS}:
+            brands_list.append({
+                "name": bname,
+                "margin": entry["margin"],
+                "use_admin_price": entry["use_admin_price"],
+                "is_custom": True,
+                "is_orphan": True,
+                "edited_by": entry["edited_by"],
+                "edited_at": entry["edited_at"]
             })
     
     # Filter by search query
