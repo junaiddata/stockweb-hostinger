@@ -400,6 +400,40 @@ ZENITH GI PIPE
 """.strip().splitlines() if b.strip())
 
 
+def ensure_hidden_brands_override_table(db_path: str):
+    """Table to track brands removed from the HIDDEN_BRANDS list by admin."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS hidden_brands_override (
+            brand_name TEXT PRIMARY KEY,
+            unhidden_by TEXT,
+            unhidden_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_unhidden_brands(db_path: str) -> set:
+    """Return set of brands (uppercase) that the admin has un-hidden."""
+    try:
+        ensure_hidden_brands_override_table(db_path)
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT brand_name FROM hidden_brands_override")
+        result = {row[0].strip().upper() for row in cur.fetchall()}
+        conn.close()
+        return result
+    except Exception:
+        return set()
+
+
+def get_effective_hidden_brands(db_path: str) -> frozenset:
+    """Return HIDDEN_BRANDS minus any brands the admin has un-hidden."""
+    return HIDDEN_BRANDS - get_unhidden_brands(db_path)
+
+
 def ensure_retail_override_table(db_path: str):
     """
     Overrides for retail branches live only in the DIP DB.
@@ -3293,9 +3327,11 @@ def admin_brand_margins():
     default_margin = row[0] if row else 15.0
     default_use_admin_price = bool(row[1]) if row else True
     
-    # Get all unique manufacturers from stock_items (no hidden filter - all active brands must be manageable)
+    # Get all unique manufacturers from stock_items
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != "" ORDER BY "Manufacturer Name"')
     all_manufacturers = [row[0] for row in cur.fetchall()]
+    effective_hidden = get_effective_hidden_brands(db_path)
+    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in effective_hidden]
 
     # Get all brand margins (excluding default)
     cur.execute("SELECT rowid, brand_name, margin_percent, COALESCE(use_admin_price, 1), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
@@ -3372,7 +3408,7 @@ def admin_brand_margins():
     # Show orphan brand margins (entries that don't match any manufacturer) so user can delete them
     for bname, entry in brand_margins_dict.items():
         lower_key = bname.strip().lower()
-        if lower_key not in matched_lower_keys and lower_key not in {h.lower() for h in HIDDEN_BRANDS}:
+        if lower_key not in matched_lower_keys and lower_key not in {h.lower() for h in effective_hidden}:
             brands_list.append({
                 "name": bname,
                 "margin": entry["margin"],
@@ -3423,7 +3459,7 @@ def api_get_brand_margins():
             custom_margins[row[0]] = default_margin
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
     all_manufacturers = [row[0] for row in cur.fetchall()]
-    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
+    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in get_effective_hidden_brands(db_path)]
     result = {}
     for mfg in all_manufacturers:
         result[mfg] = custom_margins.get(mfg, default_margin)
@@ -3548,6 +3584,80 @@ def api_update_alabama_margin():
         cost_margin_percent=cost_margin,
         brand_margin_percent=brand_margin,
     )
+
+
+# ============================================================================
+# HIDDEN BRANDS MANAGEMENT
+# ============================================================================
+
+@app.route("/admin/hidden-brands", methods=["GET", "POST"])
+def admin_hidden_brands():
+    """Admin page to see hidden brands and un-hide them so they appear in brand margins."""
+    if "username" not in session:
+        flash("Please login to manage hidden brands", "danger")
+        return redirect(url_for('login'))
+
+    db_path = DB_PATHS["DIP"]
+    ensure_hidden_brands_override_table(db_path)
+
+    message = None
+    message_type = None
+    search_query = request.args.get("q", "").strip()
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        brand_name = request.form.get("brand_name", "").strip().upper()
+
+        if action == "unhide" and brand_name:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT OR IGNORE INTO hidden_brands_override (brand_name, unhidden_by)
+                VALUES (?, ?)
+            """, (brand_name, session.get("username", "admin")))
+            conn.commit()
+            conn.close()
+            message = f"'{brand_name}' removed from hidden list — it will now appear in Brand Margins."
+            message_type = "success"
+
+        elif action == "rehide" and brand_name:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM hidden_brands_override WHERE brand_name = ?", (brand_name,))
+            conn.commit()
+            conn.close()
+            message = f"'{brand_name}' added back to hidden list."
+            message_type = "warning"
+
+    # Load which brands have been un-hidden
+    unhidden = get_unhidden_brands(db_path)
+
+    # Get manufacturers actually in stock for each hidden brand
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute('SELECT DISTINCT UPPER(TRIM("Manufacturer Name")) FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != ""')
+    in_stock_upper = {row[0] for row in cur.fetchall()}
+    conn.close()
+
+    # Build display list: all HIDDEN_BRANDS sorted
+    brands_list = []
+    for brand in sorted(HIDDEN_BRANDS):
+        if search_query and search_query.upper() not in brand:
+            continue
+        brands_list.append({
+            "name": brand,
+            "in_stock": brand in in_stock_upper,
+            "unhidden": brand in unhidden,
+        })
+
+    return render_template("admin_hidden_brands.html",
+                           brands=brands_list,
+                           search_query=search_query,
+                           message=message,
+                           message_type=message_type,
+                           total=len(HIDDEN_BRANDS),
+                           in_stock_count=sum(1 for b in brands_list if b["in_stock"]),
+                           unhidden_count=len(unhidden))
 
 
 # ============================================================================
@@ -3718,7 +3828,8 @@ def admin_alabama_margins():
         all_manufacturers.add(row[0])
     ras_conn.close()
     
-    all_manufacturers = sorted([m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS])
+    alabama_db_path = DB_PATHS.get("ALABAMA") or DB_PATHS.get("DIP")
+    all_manufacturers = sorted([m for m in all_manufacturers if (m or "").strip().upper() not in get_effective_hidden_brands(alabama_db_path)])
     
     # Get all Alabama margins (excluding default)
     cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent, edited_by, edited_at FROM alabama_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")

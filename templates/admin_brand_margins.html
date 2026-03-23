@@ -282,8 +282,13 @@
 </head>
 <body>
     <div class="container">
-        <a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
-        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <a href="{{ url_for('home') }}" class="back-link" style="margin-bottom:0;">← Back to Home</a>
+            <a href="{{ url_for('admin_hidden_brands') }}" class="btn btn-secondary btn-sm">
+                🔒 Manage Hidden Brands
+            </a>
+        </div>
+
         <h1>Brand Margin Management</h1>
         
         {% if message %}
