@@ -3293,11 +3293,10 @@ def admin_brand_margins():
     default_margin = row[0] if row else 15.0
     default_use_admin_price = bool(row[1]) if row else True
     
-    # Get all unique manufacturers from stock_items
+    # Get all unique manufacturers from stock_items (no hidden filter - all active brands must be manageable)
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != "" ORDER BY "Manufacturer Name"')
     all_manufacturers = [row[0] for row in cur.fetchall()]
-    all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in HIDDEN_BRANDS]
-    
+
     # Get all brand margins (excluding default)
     cur.execute("SELECT rowid, brand_name, margin_percent, COALESCE(use_admin_price, 1), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
     brand_margins = cur.fetchall()
