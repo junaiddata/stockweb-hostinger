@@ -1446,12 +1446,17 @@ def stock_page(branch):
     results = None
     query = ""
     hide_zero_stock = False
+    show_only_zero_stock = False
     hide_zero_cost = False
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
         if branch != "ALABAMA":
             hide_zero_stock = request.form.get("hideZeroStock") == "on"
+            if session.get("username"):
+                show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
+                if show_only_zero_stock:
+                    hide_zero_stock = False  # Mutually exclusive
         else:
             hide_zero_cost = request.form.get("hideZeroCost") == "on"
 
@@ -1610,7 +1615,12 @@ def stock_page(branch):
                     sql_query += " AND ".join(conditions)
 
                     # Extra filters
-                    if branch != "ALABAMA" and hide_zero_stock:
+                    if branch != "ALABAMA" and show_only_zero_stock:
+                        if branch == "DIP":
+                            sql_query += ' AND (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)) <= 0'
+                        else:
+                            sql_query += ' AND CAST(si."Stock Quantity" AS REAL) <= 0'
+                    elif branch != "ALABAMA" and hide_zero_stock:
                         # Changed 0 to 10, and added CAST to fix number comparison
                         sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
                     if branch == "ALABAMA" and hide_zero_cost:
@@ -1844,6 +1854,7 @@ def stock_page(branch):
         results=results,
         query=query,
         hide_zero_stock=hide_zero_stock,
+        show_only_zero_stock=show_only_zero_stock,
         hide_zero_cost=hide_zero_cost,
         branch=branch,
         dip_total_value=dip_total_value,
@@ -2840,10 +2851,15 @@ def retail_page(retail_branch):
     results = None
     query = ""
     hide_zero_stock = False
+    show_only_zero_stock = False
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
+        if session.get("username"):
+            show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
+            if show_only_zero_stock:
+                hide_zero_stock = False  # Mutually exclusive
 
         if query:
             db_path = DB_PATHS["DIP"]
@@ -2891,7 +2907,9 @@ def retail_page(retail_branch):
 
             sql += " AND ".join(conds)
 
-            if hide_zero_stock:
+            if show_only_zero_stock:
+                sql += f' AND COALESCE(si."{retail_branch}", 0) <= 0'
+            elif hide_zero_stock:
                 sql += f' AND COALESCE(si."{retail_branch}", 0) > 0'
 
             cur.execute(sql, params)
@@ -2913,6 +2931,7 @@ def retail_page(retail_branch):
         "results": results,
         "query": query,
         "hide_zero_stock": hide_zero_stock,
+        "show_only_zero_stock": show_only_zero_stock,
         "hide_zero_cost": False,
         "branch": retail_branch,
         "branch_total_value": branch_total_value,
@@ -2945,10 +2964,15 @@ def allstores():
     results = None
     query = ""
     hide_zero_stock = False
+    show_only_zero_stock = False
 
     if request.method == "POST":
         query = (request.form.get("query") or "").strip().lower()
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
+        if session.get("username"):
+            show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
+            if show_only_zero_stock:
+                hide_zero_stock = False  # Mutually exclusive
 
         words = [w for w in query.split() if w]
         where_sql = "1=1"
@@ -2979,6 +3003,13 @@ def allstores():
         cur = conn.cursor()
 
         cur.execute(f"ATTACH DATABASE '{ras_db_path}' AS ras")
+
+        total_stock_expr = " + ".join([
+            'COALESCE(si."AJMAN", 0)', 'COALESCE(si."NAH", 0)', 'COALESCE(si."DEIRA", 0)',
+            'COALESCE(si."DEIRA2", 0)', 'COALESCE(si."ABUDHABI", 0)', 'COALESCE(si."QUSAIS", 0)',
+            'COALESCE(rsi."Stock Quantity", 0)'
+        ])
+        stock_filter = f" AND ({total_stock_expr}) <= 0" if show_only_zero_stock else (f" AND ({total_stock_expr}) > 0" if hide_zero_stock else "")
 
         # 2. UPDATED SQL: Added TRIM() in the LEFT JOIN condition
         ensure_brand_margins_table(dip_db)
@@ -3017,16 +3048,7 @@ def allstores():
             LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
             LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
             LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
-            WHERE {where_sql}
-            {" AND (" + " + ".join([
-                'COALESCE(si."AJMAN", 0)',
-                'COALESCE(si."NAH", 0)',
-                'COALESCE(si."DEIRA", 0)',
-                'COALESCE(si."DEIRA2", 0)',
-                'COALESCE(si."ABUDHABI", 0)',
-                'COALESCE(si."QUSAIS", 0)',
-                'COALESCE(rsi."Stock Quantity", 0)' 
-            ]) + ") > 0" if hide_zero_stock else ""}
+            WHERE {where_sql}{stock_filter}
             ORDER BY si."ItemCode"
         """
 
@@ -3072,6 +3094,7 @@ def allstores():
         "results": results,
         "query": query,
         "hide_zero_stock": hide_zero_stock,
+        "show_only_zero_stock": show_only_zero_stock,
         "hide_zero_cost": False,
         "branch": "ALLSTORES",
         "branch_totals": branch_totals,

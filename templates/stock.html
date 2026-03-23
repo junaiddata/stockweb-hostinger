@@ -476,6 +476,13 @@
                             <span class="slider"></span>
                             Hide zero stock items
                         </label>
+                        {% if session.username %}
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="showOnlyZeroStock" name="showOnlyZeroStock" {% if show_only_zero_stock|default(false) %}checked{% endif %}>
+                            <span class="slider"></span>
+                            Show only zero stock items
+                        </label>
+                        {% endif %}
                         {% else %}
                         <label class="toggle-switch">
                             <input type="checkbox" id="hideZeroCost" name="hideZeroCost" {% if hide_zero_cost %}checked{% endif %}>
@@ -532,6 +539,7 @@
 
                     // Re-run toggles after new HTML
                     hideZeroStockItems();
+                    showOnlyZeroStockItems();
                     hideZeroCostItems();
                 } catch (err) {
                     console.error('[Search] AJAX error:', err);
@@ -544,11 +552,34 @@
         function hideZeroStockItems() {
             const stockToggle = document.getElementById("hideZeroStock");
             if (!stockToggle) return;
+            const showOnlyToggle = document.getElementById("showOnlyZeroStock");
+            if (showOnlyToggle && showOnlyToggle.checked) return;  // showOnly takes precedence
             const isChecked = stockToggle.checked;
             const zeroStockItems = document.querySelectorAll(".zero-stock");
             zeroStockItems.forEach(item => {
                 item.style.display = isChecked ? "none" : "";
             });
+            // Show all non-zero-stock when hideZeroStock runs
+            document.querySelectorAll(".results-table tbody tr:not(.zero-stock), .results-cards-container .result-card:not(.zero-stock)").forEach(el => {
+                el.style.display = "";
+            });
+        }
+
+        function showOnlyZeroStockItems() {
+            const showOnlyToggle = document.getElementById("showOnlyZeroStock");
+            if (!showOnlyToggle) return;
+            const isChecked = showOnlyToggle.checked;
+            if (isChecked) {
+                document.querySelectorAll(".zero-stock").forEach(item => { item.style.display = ""; });
+                document.querySelectorAll(".results-table tbody tr:not(.zero-stock), .results-cards-container .result-card:not(.zero-stock)").forEach(el => {
+                    el.style.display = "none";
+                });
+            } else {
+                document.querySelectorAll(".results-table tbody tr, .results-cards-container .result-card").forEach(el => {
+                    el.style.display = "";
+                });
+                hideZeroStockItems();  // Re-apply hideZeroStock if it's checked
+            }
         }
 
         function hideZeroCostItems() {
@@ -578,11 +609,23 @@
         }
         
         const stockToggleEl = document.getElementById("hideZeroStock");
-        if (stockToggleEl) stockToggleEl.addEventListener("change", hideZeroStockItems);
+        if (stockToggleEl) stockToggleEl.addEventListener("change", function() {
+            const showOnlyEl = document.getElementById("showOnlyZeroStock");
+            if (showOnlyEl && this.checked) showOnlyEl.checked = false;  // Mutually exclusive
+            hideZeroStockItems();
+            showOnlyZeroStockItems();
+        });
+        const showOnlyEl = document.getElementById("showOnlyZeroStock");
+        if (showOnlyEl) showOnlyEl.addEventListener("change", function() {
+            const hideEl = document.getElementById("hideZeroStock");
+            if (hideEl && this.checked) hideEl.checked = false;  // Mutually exclusive
+            hideZeroStockItems();
+            showOnlyZeroStockItems();
+        });
         const costToggleEl = document.getElementById("hideZeroCost");
         if (costToggleEl) costToggleEl.addEventListener("change", hideZeroCostItems);
         
-        window.addEventListener("load", () => { hideZeroStockItems(); hideZeroCostItems(); });
+        window.addEventListener("load", () => { hideZeroStockItems(); showOnlyZeroStockItems(); hideZeroCostItems(); });
 
         function startVoiceSearch() {
             if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
