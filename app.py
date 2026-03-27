@@ -2141,91 +2141,122 @@ CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percen
 #     return redirect(url_for("home"))
 
 from flask import jsonify
+import gzip
+import io
+
+_stock_api_cache = {"data": None, "etag": None, "ts": 0}
+_STOCK_API_CACHE_TTL = 150  # 2.5 minutes
 
 @app.route("/api/stock", methods=["GET"])
 def stock_api():
+    now = time.time()
+
+    # --- Serve from cache if fresh ---
+    if _stock_api_cache["data"] and (now - _stock_api_cache["ts"]) < _STOCK_API_CACHE_TTL:
+        client_etag = request.headers.get("If-None-Match")
+        if client_etag and client_etag == _stock_api_cache["etag"]:
+            return Response(status=304)
+        resp = Response(_stock_api_cache["data"], content_type="application/json")
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["ETag"] = _stock_api_cache["etag"]
+        resp.headers["Cache-Control"] = f"public, max-age={_STOCK_API_CACHE_TTL}"
+        return resp
+
     db_path = DB_PATHS.get("DIP")
     if not db_path:
         return jsonify({"error": "Database path not found"}), 500
 
     ensure_override_table(db_path)
     ensure_brand_margins_table(db_path)
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
 
-    # Attach RASALKHORE database to get total stock (DIP + RASALKHORE)
-    ras_attached = False
-    ras_db_path = DB_PATHS.get("RASALKHORE")
-    if ras_db_path:
-        ras_db_path = os.path.abspath(ras_db_path)
-        if os.path.exists(ras_db_path):
-            try:
-                cur.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
-                ras_attached = True
-            except sqlite3.Error:
-                ras_attached = False
+    try:
+        with get_db_connection(db_path, timeout=10.0) as conn:
+            conn.execute("PRAGMA read_uncommitted=1")
+            cur = conn.cursor()
 
-    if ras_attached:
-        cur.execute("""
-            SELECT
-                si."ItemCode",
-                si."Description",
-                si."Manufacturer Name",
-                si."Warehouse Code",
-                si."Stock Quantity" AS "DIP Stock",
-                COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",
-                (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)) AS "Total Stock",
-                CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
-     WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
-                si."CostPrice",
-                si."Upc Code"
-            FROM stock_items si
-            LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
-            LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-            LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
-        """)
-    else:
-        cur.execute("""
-            SELECT
-                si."ItemCode",
-                si."Description",
-                si."Manufacturer Name",
-                si."Warehouse Code",
-                si."Stock Quantity" AS "DIP Stock",
-                0 AS "RAS Stock",
-                si."Stock Quantity" AS "Total Stock",
-                CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
-     WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
-                si."CostPrice",
-                si."Upc Code"
-            FROM stock_items si
-            LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
-            LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
-        """)
+            ras_attached = False
+            ras_db_path = DB_PATHS.get("RASALKHORE")
+            if ras_db_path:
+                ras_db_path = os.path.abspath(ras_db_path)
+                if os.path.exists(ras_db_path):
+                    try:
+                        cur.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
+                        ras_attached = True
+                    except sqlite3.Error:
+                        ras_attached = False
 
-    rows = cur.fetchall()
-    conn.close()
+            if ras_attached:
+                cur.execute("""
+                    SELECT
+                        si."ItemCode",
+                        si."Description",
+                        si."Manufacturer Name",
+                        si."Warehouse Code",
+                        si."Stock Quantity",
+                        COALESCE(rsi."Stock Quantity", 0),
+                        (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)),
+                        CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                             THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                             WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
+                             ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END,
+                        si."CostPrice",
+                        si."Upc Code"
+                    FROM stock_items si
+                    LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
+                    LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                    LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
+                """)
+            else:
+                cur.execute("""
+                    SELECT
+                        si."ItemCode",
+                        si."Description",
+                        si."Manufacturer Name",
+                        si."Warehouse Code",
+                        si."Stock Quantity",
+                        0,
+                        si."Stock Quantity",
+                        CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                             THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                             WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
+                             ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END,
+                        si."CostPrice",
+                        si."Upc Code"
+                    FROM stock_items si
+                    LEFT JOIN price_overrides po ON po.ItemCode = si.ItemCode
+                    LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
+                """)
 
-    stock_list = [
-        {
-            "item_code": row[0],
-            "description": row[1],
-            "manufacturer": row[2],
-            "warehouse": row[3],
-            "dip_stock": row[4],
-            "ras_stock": row[5],
-            "total_stock": row[6],
-            "minimum_selling_price": row[7],  # effective price
-            "cost_price": row[8],
-            "upc_code": row[9]
-        }
-        for row in rows
-    ]
-    return jsonify(stock_list)
+            keys = ("item_code", "description", "manufacturer", "warehouse",
+                    "dip_stock", "ras_stock", "total_stock",
+                    "minimum_selling_price", "cost_price", "upc_code")
+            stock_list = [dict(zip(keys, row)) for row in cur]
+
+            if ras_attached:
+                try:
+                    cur.execute("DETACH DATABASE ras")
+                except:
+                    pass
+    except Exception:
+        return jsonify({"error": "Database temporarily unavailable"}), 503
+
+    # Build JSON & gzip once, cache the result
+    json_bytes = json.dumps(stock_list, separators=(",", ":")).encode("utf-8")
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=6) as gz:
+        gz.write(json_bytes)
+    compressed = buf.getvalue()
+
+    etag = f'W/"{hash(compressed) & 0xFFFFFFFF:08x}"'
+    _stock_api_cache["data"] = compressed
+    _stock_api_cache["etag"] = etag
+    _stock_api_cache["ts"] = now
+
+    resp = Response(compressed, content_type="application/json")
+    resp.headers["Content-Encoding"] = "gzip"
+    resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = f"public, max-age={_STOCK_API_CACHE_TTL}"
+    return resp
 # put at top if not already imported
 from flask import jsonify
 import os, sqlite3, traceback
