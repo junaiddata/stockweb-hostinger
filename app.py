@@ -18,6 +18,7 @@ import threading
 import queue
 import json
 import time
+import re
 from contextlib import contextmanager
 
 
@@ -1442,15 +1443,35 @@ def rasalkhor():
 def alabama():
     return stock_page("ALABAMA")
 
+def parse_bulk_item_codes(raw_codes: str, max_codes: int = 900):
+    """Parse bulk item codes split by newline, space, comma, or semicolon."""
+    if not raw_codes:
+        return []
+
+    tokens = [token.strip().lower() for token in re.split(r"[\s,;]+", raw_codes.strip()) if token.strip()]
+    unique_codes = []
+    seen = set()
+    for token in tokens:
+        if token in seen:
+            continue
+        seen.add(token)
+        unique_codes.append(token)
+        if len(unique_codes) >= max_codes:
+            break
+    return unique_codes
+
 def stock_page(branch):
     results = None
     query = ""
+    bulk_item_codes = ""
     hide_zero_stock = False
     show_only_zero_stock = False
     hide_zero_cost = False
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
+        bulk_item_codes = request.form.get("bulk_item_codes", "")
+        bulk_codes = parse_bulk_item_codes(bulk_item_codes)
         if branch != "ALABAMA":
             hide_zero_stock = request.form.get("hideZeroStock") == "on"
             if session.get("username"):
@@ -1460,7 +1481,7 @@ def stock_page(branch):
         else:
             hide_zero_cost = request.form.get("hideZeroCost") == "on"
 
-        if query:
+        if query or bulk_codes:
             db_path = DB_PATHS[branch]
             
             # make sure overrides table exists for JOINs
@@ -1600,17 +1621,22 @@ def stock_page(branch):
                     # --- WHERE conditions (shared) ---
                     conditions = []
                     params = []
-                    for w in query_words:
-                        like = f"%{w}%"
-                        conditions.append(
-                            f"""(
-                                LOWER({col_item}) LIKE ? OR
-                                LOWER({col_upc})  LIKE ? OR
-                                LOWER({col_desc}) LIKE ? OR
-                                LOWER({col_mfg})  LIKE ?
-                            )"""
-                        )
-                        params.extend([like, like, like, like])
+                    if bulk_codes:
+                        placeholders = ",".join(["?"] * len(bulk_codes))
+                        conditions.append(f"LOWER(TRIM({col_item})) IN ({placeholders})")
+                        params.extend(bulk_codes)
+                    else:
+                        for w in query_words:
+                            like = f"%{w}%"
+                            conditions.append(
+                                f"""(
+                                    LOWER({col_item}) LIKE ? OR
+                                    LOWER({col_upc})  LIKE ? OR
+                                    LOWER({col_desc}) LIKE ? OR
+                                    LOWER({col_mfg})  LIKE ?
+                                )"""
+                            )
+                            params.extend([like, like, like, like])
 
                     sql_query += " AND ".join(conditions)
 
@@ -1726,6 +1752,13 @@ def stock_page(branch):
                                 )
                                 for row in results
                             ]
+
+                    if bulk_codes and results:
+                        bulk_code_order = {code: idx for idx, code in enumerate(bulk_codes)}
+                        results = sorted(
+                            results,
+                            key=lambda row: bulk_code_order.get(str((row[0] if row else "")).strip().lower(), len(bulk_codes))
+                        )
 
                     # Detach attached DB (only if we attached it)
                     if branch == "DIP":
@@ -1856,6 +1889,7 @@ def stock_page(branch):
         hide_zero_stock=hide_zero_stock,
         show_only_zero_stock=show_only_zero_stock,
         hide_zero_cost=hide_zero_cost,
+        bulk_item_codes=bulk_item_codes,
         branch=branch,
         dip_total_value=dip_total_value,
         ras_total_value=ras_total_value,

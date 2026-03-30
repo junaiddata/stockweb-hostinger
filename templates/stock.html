@@ -280,6 +280,41 @@
 
         input[type="text"]:focus { border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
 
+        .bulk-item-codes-wrapper {
+            margin-top: 0.85rem;
+            display: none;
+        }
+
+        .bulk-item-codes-wrapper.is-visible {
+            display: block;
+        }
+
+        .bulk-item-codes-wrapper label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-light);
+            margin-bottom: 0.45rem;
+        }
+
+        textarea[name="bulk_item_codes"] {
+            width: 100%;
+            min-height: 90px;
+            resize: vertical;
+            padding: 10px 12px;
+            font-size: 0.95rem;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            outline: none;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        textarea[name="bulk_item_codes"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 8px rgba(13, 71, 161, 0.2);
+        }
+
         #voiceSearchBtn {
             position: absolute; right: 5px; width: 40px; height: 40px; background: none; border: none;
             color: var(--text-light); font-size: 1.5rem; cursor: pointer; transition: color 0.3s ease;
@@ -469,7 +504,16 @@
                         <input type="text" name="query" placeholder="Enter Item Code, UPC, or Description" value="{{ query }}" autocomplete="off">
                         <button type="button" id="voiceSearchBtn" aria-label="Search by voice">🎤</button>
                     </div>
+                    <div class="bulk-item-codes-wrapper">
+                        <label for="bulkItemCodes">Bulk item codes (new line, space, or comma separated)</label>
+                        <textarea id="bulkItemCodes" name="bulk_item_codes" placeholder="300212&#10;300263&#10;300023">{{ bulk_item_codes or '' }}</textarea>
+                    </div>
                     <div class="controls">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="bulkSearchToggle">
+                            <span class="slider"></span>
+                            Bulk search
+                        </label>
                         {% if branch != 'ALABAMA' %}
                         <label class="toggle-switch">
                             <input type="checkbox" id="hideZeroStock" name="hideZeroStock" {% if hide_zero_stock %}checked{% endif %}>
@@ -493,6 +537,9 @@
                         
                         <!-- NEW EXPORT BUTTON -->
                         <!-- NEW EXPORT BUTTON -->
+                        <button type="button" onclick="copyResultsForExcel()" style="background: linear-gradient(135deg, #2e7d32, #1b5e20); margin-right: 10px; min-width: 140px;">
+                            📋 Copy Excel
+                        </button>
                         <button type="button" onclick="exportToPDF()" style="background: linear-gradient(135deg, #d32f2f, #b71c1c); margin-right: 10px; min-width: 140px;">
                             📄 Export PDF
                         </button>
@@ -624,8 +671,26 @@
         });
         const costToggleEl = document.getElementById("hideZeroCost");
         if (costToggleEl) costToggleEl.addEventListener("change", hideZeroCostItems);
+        const bulkSearchToggleEl = document.getElementById("bulkSearchToggle");
+        const bulkCodesEl = document.getElementById("bulkItemCodes");
+        const bulkCodesWrapEl = document.querySelector(".bulk-item-codes-wrapper");
+
+        function syncBulkSearchVisibility() {
+            if (!bulkCodesWrapEl || !bulkCodesEl || !bulkSearchToggleEl) return;
+            const hasBulkValue = (bulkCodesEl.value || "").trim().length > 0;
+            const shouldShowBulk = bulkSearchToggleEl.checked || hasBulkValue;
+            bulkSearchToggleEl.checked = shouldShowBulk;
+            bulkCodesWrapEl.classList.toggle("is-visible", shouldShowBulk);
+            bulkCodesEl.disabled = !shouldShowBulk;
+        }
+        if (bulkSearchToggleEl) bulkSearchToggleEl.addEventListener("change", syncBulkSearchVisibility);
         
-        window.addEventListener("load", () => { hideZeroStockItems(); showOnlyZeroStockItems(); hideZeroCostItems(); });
+        window.addEventListener("load", () => {
+            hideZeroStockItems();
+            showOnlyZeroStockItems();
+            hideZeroCostItems();
+            syncBulkSearchVisibility();
+        });
 
         function startVoiceSearch() {
             if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
@@ -744,6 +809,65 @@
           }
         }
 
+
+async function copyResultsForExcel() {
+        const table = document.querySelector(".results-table");
+        if (!table) {
+            alert("No data found to copy.");
+            return;
+        }
+
+        const lines = [];
+        const ths = table.querySelectorAll("thead th");
+        const headers = Array.from(ths).map(th => (th.innerText || "").trim());
+        if (headers.length > 0) {
+            lines.push(headers.join("\t"));
+        }
+
+        const trs = table.querySelectorAll("tbody tr");
+        trs.forEach(tr => {
+            if (getComputedStyle(tr).display === "none") return;
+            const tds = tr.querySelectorAll("td");
+            const row = [];
+            tds.forEach(td => {
+                let cellText = "";
+                if (td.querySelector(".min-price-text")) {
+                    cellText = td.querySelector(".min-price-text").innerText.trim() + " AED";
+                } else if (td.querySelector(".sold-sub")) {
+                    const mainVal = (td.childNodes[0]?.textContent || "").trim();
+                    const ho = td.querySelector(".sold-sub span:nth-child(1)")?.innerText || "";
+                    const others = td.querySelector(".sold-sub span:nth-child(2)")?.innerText || "";
+                    cellText = `${mainVal} (${ho} | ${others})`.trim();
+                } else {
+                    cellText = (td.innerText || "").trim();
+                }
+                row.push(cellText.replace(/\r?\n/g, " "));
+            });
+            if (row.length > 0) lines.push(row.join("\t"));
+        });
+
+        if (lines.length <= 1) {
+            alert("No visible rows to copy.");
+            return;
+        }
+
+        const payload = lines.join("\n");
+        try {
+            await navigator.clipboard.writeText(payload);
+            alert("Copied! Paste into Excel.");
+        } catch (_) {
+            const ta = document.createElement("textarea");
+            ta.value = payload;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+            alert("Copied! Paste into Excel.");
+        }
+      }
 
  async function exportToPDF() {
         const { jsPDF } = window.jspdf;
