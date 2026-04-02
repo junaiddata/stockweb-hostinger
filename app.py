@@ -514,7 +514,7 @@ def ensure_alabama_margins_table(db_path: str):
     Create alabama_margins table for storing Alabama-specific margins.
     Two types of margins:
     1. cost_margin_percent: Applied to Junaid Cost → Alabama Cost (additive: Cost * (1 + margin/100))
-    2. brand_margin_percent: Applied to Alabama Cost → Alabama Selling Price (division: Cost / (1 - margin/100))
+    2. brand_margin_percent: Applied to Alabama Cost → Alabama Selling Price (markup on cost: Cost * (1 + margin/100); e.g. 100% => 2x cost)
     """
     max_retries = 3
     for attempt in range(max_retries):
@@ -600,6 +600,22 @@ def get_default_margin(db_path: str) -> float:
     row = cur.fetchone()
     conn.close()
     return row[0] if row else DEFAULT_MARGIN_PERCENT
+
+
+def selling_price_from_cost_and_markup_margin(cost: float, margin_percent) -> float:
+    """Selling price = cost * (1 + margin/100). E.g. 100% => 2x cost, 15% => 1.15x cost. If multiplier <= 0, returns 0."""
+    try:
+        c = float(cost)
+    except (TypeError, ValueError):
+        c = 0.0
+    try:
+        m = float(margin_percent)
+    except (TypeError, ValueError):
+        m = DEFAULT_MARGIN_PERCENT
+    mult = 1.0 + m / 100.0
+    if c <= 0 or mult <= 0:
+        return 0.0
+    return round(c * mult, 2)
 
 
 # add anywhere near your helpers
@@ -893,10 +909,9 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             on_hand = _to_float(item.get("OnHand", 0), 0.0)
             avg_price = _to_float(item.get("AvgPrice", 0), 0.0)
             
-            # Selling price: use admin override if brand allows, else use brand margin
+            # Selling price: use admin override if brand allows, else brand margin as markup on cost (%)
             margin_pct = _get_margin(manufacturer)
-            margin_divisor = 1 - (margin_pct / 100)
-            calc_price = round(avg_price / margin_divisor, 2) if avg_price > 0 and margin_divisor > 0 else 0.0
+            calc_price = selling_price_from_cost_and_markup_margin(avg_price, margin_pct)
             
             if keep_admin_prices and _get_use_admin(manufacturer) and item_code in existing_overrides:
                 selling_price = round(existing_overrides[item_code], 2)
@@ -1572,8 +1587,8 @@ def stock_page(branch):
                             si."Stock Quantity"      AS "DIP Stock",            -- 5
                             COALESCE(rsi."Stock Quantity", 0) AS "RAS Stock",  -- 6
                             si."Free Stock",                                    -- 7
-                            CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                            CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
      ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price", -- 8
                             si."CostPrice" ,                                     -- 9
@@ -1602,8 +1617,8 @@ def stock_page(branch):
                             si."Warehouse Code",
                             si."Stock Quantity",
                             si."Free Stock",
-                            ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                            ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
      ELSE COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") END) * 1.05, 2) AS "Selling Price",
                             si."CostPrice"
@@ -1704,8 +1719,7 @@ def stock_page(branch):
                             if selling_override is not None and float(selling_override) >= 0:
                                 alabama_selling_price = round(float(selling_override), 2)
                             else:
-                                margin_divisor = 1 - (brand_margin / 100)
-                                alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+                                alabama_selling_price = selling_price_from_cost_and_markup_margin(alabama_cost, brand_margin)
                             
                             # Return: ItemCode, Upc Code, Description, Manufacturer Name, CostPrice, Selling Price
                             processed_results.append((
@@ -1955,8 +1969,8 @@ def item_detail(branch, item_code):
                 ) AS TotalStock,            -- 12
                 
                 -- PRICE LOGIC: DIP price + 5% (no retail overrides)
-                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-                     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                     THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
                      ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END) * 1.05, 2) AS MinPrice, -- 13
                 si."CostPrice"              -- 14
@@ -2020,8 +2034,8 @@ def item_detail(branch, item_code):
                 si."Warehouse Code",
                 COALESCE(si."{branch}", 0) AS retail_stock,
                 0 AS free_stock,
-                CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
      ELSE COALESCE(ro.SellingPriceOverride, si."Selling Price") END AS eff_min_price,
                 si."CostPrice"
@@ -2091,8 +2105,7 @@ def item_detail(branch, item_code):
             if selling_override is not None and float(selling_override) >= 0:
                 alabama_selling_price = round(float(selling_override), 2)
             else:
-                margin_divisor = 1 - (brand_margin / 100)
-                alabama_selling_price = round(alabama_cost / margin_divisor, 2) if alabama_cost > 0 and margin_divisor > 0 else 0.0
+                alabama_selling_price = selling_price_from_cost_and_markup_margin(alabama_cost, brand_margin)
             
             item_data = {
                 "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
@@ -2125,8 +2138,8 @@ def item_detail(branch, item_code):
             SELECT
                 si."ItemCode", si."Upc Code", si."Description", si."Manufacturer Name", si."Warehouse Code",
                 si."Stock Quantity", si."Free Stock",
-                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
      ELSE COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") END) * 1.05, 2) AS "Selling Price",
                 si."CostPrice"
@@ -2141,8 +2154,8 @@ def item_detail(branch, item_code):
             SELECT
                 si."ItemCode", si."Upc Code", si."Description", si."Manufacturer Name", si."Warehouse Code",
                 si."Stock Quantity", si."Free Stock",
-CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
      ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
             si."CostPrice"
@@ -2229,8 +2242,8 @@ def stock_api():
                         si."Stock Quantity",
                         COALESCE(rsi."Stock Quantity", 0),
                         (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)),
-                        CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-                             THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                        CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                             THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                              WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
                              ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END,
                         si."CostPrice",
@@ -2250,8 +2263,8 @@ def stock_api():
                         si."Stock Quantity",
                         0,
                         si."Stock Quantity",
-                        CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-                             THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                        CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                             THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                              WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
                              ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END,
                         si."CostPrice",
@@ -2619,11 +2632,7 @@ def _process_sync_in_background(data):
                     selling_price = existing_overrides[item_code]
                 elif stock_column == "Stock Quantity":
                     margin_percent = get_brand_margin_case_insensitive(manufacturer)
-                    margin_divisor = 1 - (margin_percent / 100)
-                    if cost_for_margin > 0 and margin_divisor > 0:
-                        selling_price = round(cost_for_margin / margin_divisor, 2)
-                    else:
-                        selling_price = 0.0
+                    selling_price = selling_price_from_cost_and_markup_margin(cost_for_margin, margin_percent)
                 else:
                     selling_price = 0
                 
@@ -2943,8 +2952,8 @@ def retail_page(retail_branch):
                     si."Warehouse Code",
                     COALESCE(si."{retail_branch}", 0) AS "RetailStock",
                     0 AS "Free Stock",
-                    CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+                    CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
      ELSE COALESCE(ro.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
                     si."CostPrice"
@@ -3099,8 +3108,8 @@ def allstores():
                 COALESCE(si."QUSAIS", 0) +
                 COALESCE(rsi."Stock Quantity", 0)
               ) AS TotalStock,
-              ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 - COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
-     THEN ROUND(CAST(si."CostPrice" AS REAL) / (1 - COALESCE(bm.margin_percent, 15)/100), 2)
+              ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+     THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
      ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END) * 1.05, 2) AS MinPrice,
               COALESCE(si."CostPrice", 0) AS CostPrice,
