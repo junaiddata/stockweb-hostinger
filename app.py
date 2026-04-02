@@ -483,11 +483,12 @@ def ensure_brand_margins_table(db_path: str):
                         brand_name TEXT PRIMARY KEY,
                         margin_percent REAL DEFAULT 15.0,
                         use_admin_price INTEGER DEFAULT 1,
+                        admin_extra_margin_percent REAL DEFAULT 0.0,
                         edited_by TEXT,
                         edited_at TEXT DEFAULT (datetime('now'))
                     )
                 """)
-                # Add use_admin_price if missing (migration)
+                # Add missing columns (migration)
                 cols = [r[1] for r in cur.execute("PRAGMA table_info(brand_margins)").fetchall()]
                 if "use_admin_price" not in cols:
                     try:
@@ -496,10 +497,17 @@ def ensure_brand_margins_table(db_path: str):
                         if "duplicate column" not in str(e).lower():
                             raise
                     cur.execute("UPDATE brand_margins SET use_admin_price = 1 WHERE use_admin_price IS NULL")
+                if "admin_extra_margin_percent" not in cols:
+                    try:
+                        cur.execute("ALTER TABLE brand_margins ADD COLUMN admin_extra_margin_percent REAL DEFAULT 0.0")
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" not in str(e).lower():
+                            raise
+                    cur.execute("UPDATE brand_margins SET admin_extra_margin_percent = 0.0 WHERE admin_extra_margin_percent IS NULL")
                 # Insert default margin row if not exists
                 cur.execute("""
-                    INSERT OR IGNORE INTO brand_margins (brand_name, margin_percent, use_admin_price, edited_by)
-                    VALUES ('__DEFAULT__', 15.0, 1, 'system')
+                    INSERT OR IGNORE INTO brand_margins (brand_name, margin_percent, use_admin_price, admin_extra_margin_percent, edited_by)
+                    VALUES ('__DEFAULT__', 15.0, 1, 0.0, 'system')
                 """)
             break
         except sqlite3.OperationalError as e:
@@ -616,6 +624,22 @@ def selling_price_from_cost_and_markup_margin(cost: float, margin_percent) -> fl
     if c <= 0 or mult <= 0:
         return 0.0
     return round(c * mult, 2)
+
+
+def apply_admin_extra_margin(price, extra_margin_percent) -> float:
+    """Apply brand-level extra margin on top of admin-edited price."""
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        p = 0.0
+    try:
+        extra = float(extra_margin_percent)
+    except (TypeError, ValueError):
+        extra = 0.0
+    mult = 1.0 + extra / 100.0
+    if p <= 0 or mult <= 0:
+        return 0.0
+    return round(p * mult, 2)
 
 
 # add anywhere near your helpers
@@ -866,21 +890,27 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
         brand_margins_lower = {}
         brand_use_admin = {}
         brand_use_admin_lower = {}
+        brand_admin_extra = {}
+        brand_admin_extra_lower = {}
         default_margin = DEFAULT_MARGIN_PERCENT
         use_admin_default = True
+        default_admin_extra = 0.0
         if branch in ("DIP", "RASALKHORE"):
             with get_db_connection(dip_db, timeout=5.0) as mconn:
                 mcur = mconn.cursor()
-                mcur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1) FROM brand_margins")
+                mcur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1), COALESCE(admin_extra_margin_percent, 0) FROM brand_margins")
                 for row in mcur.fetchall():
                     if row[0] == "__DEFAULT__":
                         default_margin = row[1]
                         use_admin_default = bool(row[2])
+                        default_admin_extra = float(row[3] or 0.0)
                     else:
                         brand_margins[row[0]] = row[1]
                         brand_margins_lower[row[0].lower()] = (row[0], row[1])
                         brand_use_admin[row[0]] = bool(row[2])
                         brand_use_admin_lower[row[0].lower()] = bool(row[2])
+                        brand_admin_extra[row[0]] = float(row[3] or 0.0)
+                        brand_admin_extra_lower[row[0].lower()] = float(row[3] or 0.0)
         
         def _get_margin(mfg):
             if not mfg: return default_margin
@@ -891,6 +921,10 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             if not mfg: return use_admin_default
             if mfg in brand_use_admin: return brand_use_admin[mfg]
             return brand_use_admin_lower.get(mfg.lower(), use_admin_default)
+        def _get_admin_extra(mfg):
+            if not mfg: return default_admin_extra
+            if mfg in brand_admin_extra: return brand_admin_extra[mfg]
+            return brand_admin_extra_lower.get(mfg.lower(), default_admin_extra)
         
         # Process API items
         items_to_insert = []
@@ -914,7 +948,7 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             calc_price = selling_price_from_cost_and_markup_margin(avg_price, margin_pct)
             
             if keep_admin_prices and _get_use_admin(manufacturer) and item_code in existing_overrides:
-                selling_price = round(existing_overrides[item_code], 2)
+                selling_price = apply_admin_extra_margin(existing_overrides[item_code], _get_admin_extra(manufacturer))
             else:
                 selling_price = calc_price
             
@@ -1590,7 +1624,9 @@ def stock_page(branch):
                             CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price", -- 8
+     ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+               THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+               ELSE 0 END END AS "Selling Price", -- 8
                             si."CostPrice" ,                                     -- 9
                             (COALESCE(si."Stock Quantity",0) + COALESCE(rsi."Stock Quantity",0)) AS "Total Stock" -- 10
                         FROM stock_items si
@@ -1620,7 +1656,9 @@ def stock_page(branch):
                             ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
-     ELSE COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") END) * 1.05, 2) AS "Selling Price",
+     ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+               THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+               ELSE 0 END END) * 1.05, 2) AS "Selling Price",
                             si."CostPrice"
                                 FROM stock_items si
                                 LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = si."ItemCode"
@@ -1972,7 +2010,9 @@ def item_detail(branch, item_code):
                 ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
                      THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-                     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END) * 1.05, 2) AS MinPrice, -- 13
+                     ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                               THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                               ELSE 0 END END) * 1.05, 2) AS MinPrice, -- 13
                 si."CostPrice"              -- 14
             FROM stock_items si
             LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(si."ItemCode")
@@ -2141,7 +2181,9 @@ def item_detail(branch, item_code):
                 ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
-     ELSE COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") END) * 1.05, 2) AS "Selling Price",
+     ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+               THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+               ELSE 0 END END) * 1.05, 2) AS "Selling Price",
                 si."CostPrice"
             FROM stock_items si
             LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = si."ItemCode"
@@ -2157,7 +2199,9 @@ def item_detail(branch, item_code):
 CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END AS "Selling Price",
+     ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+               THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+               ELSE 0 END END AS "Selling Price",
             si."CostPrice"
         FROM stock_items si
         LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
@@ -2245,7 +2289,9 @@ def stock_api():
                         CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
                              THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                              WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-                             ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END,
+                             ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                                       THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                                       ELSE 0 END END,
                         si."CostPrice",
                         si."Upc Code"
                     FROM stock_items si
@@ -2266,7 +2312,9 @@ def stock_api():
                         CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
                              THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                              WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-                             ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END,
+                             ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                                       THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                                       ELSE 0 END END,
                         si."CostPrice",
                         si."Upc Code"
                     FROM stock_items si
@@ -2549,23 +2597,30 @@ def _process_sync_in_background(data):
             default_margin = DEFAULT_MARGIN_PERCENT
             
             use_admin_price_default = True
+            admin_extra_default = 0.0
             brand_use_admin_price = {}
             brand_use_admin_price_lower = {}
+            brand_admin_extra = {}
+            brand_admin_extra_lower = {}
             with get_db_connection(dip_db, timeout=10.0) as margin_conn:
                 margin_cur = margin_conn.cursor()
-                margin_cur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1) FROM brand_margins")
+                margin_cur.execute("SELECT brand_name, margin_percent, COALESCE(use_admin_price, 1), COALESCE(admin_extra_margin_percent, 0) FROM brand_margins")
                 for row in margin_cur.fetchall():
                     if row[0] == "__DEFAULT__":
                         default_margin = row[1]
                         use_admin_price_default = bool(row[2])
+                        admin_extra_default = float(row[3] or 0.0)
                     else:
                         brand_name = row[0]
                         margin = row[1]
                         use_admin = bool(row[2])
+                        admin_extra = float(row[3] or 0.0)
                         brand_margins[brand_name] = margin
                         brand_margins_lower[brand_name.lower()] = (brand_name, margin)
                         brand_use_admin_price[brand_name] = use_admin
                         brand_use_admin_price_lower[brand_name.lower()] = use_admin
+                        brand_admin_extra[brand_name] = admin_extra
+                        brand_admin_extra_lower[brand_name.lower()] = admin_extra
             
             def get_brand_use_admin_price(manufacturer_name):
                 if not manufacturer_name:
@@ -2586,6 +2641,15 @@ def _process_sync_in_background(data):
                 if manufacturer_lower in brand_margins_lower:
                     return brand_margins_lower[manufacturer_lower][1]
                 return default_margin
+            def get_brand_admin_extra(manufacturer_name):
+                if not manufacturer_name:
+                    return admin_extra_default
+                if manufacturer_name in brand_admin_extra:
+                    return brand_admin_extra[manufacturer_name]
+                manufacturer_lower = manufacturer_name.lower()
+                if manufacturer_lower in brand_admin_extra_lower:
+                    return brand_admin_extra_lower[manufacturer_lower]
+                return admin_extra_default
             
             cost_price_overrides = get_cost_price_overrides(dip_db)
             
@@ -2629,7 +2693,7 @@ def _process_sync_in_background(data):
                 
                 use_admin = get_brand_use_admin_price(manufacturer)
                 if data.get("keep_admin_prices", True) and use_admin and item_code in existing_overrides:
-                    selling_price = existing_overrides[item_code]
+                    selling_price = apply_admin_extra_margin(existing_overrides[item_code], get_brand_admin_extra(manufacturer))
                 elif stock_column == "Stock Quantity":
                     margin_percent = get_brand_margin_case_insensitive(manufacturer)
                     selling_price = selling_price_from_cost_and_markup_margin(cost_for_margin, margin_percent)
@@ -3111,7 +3175,9 @@ def allstores():
               ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
-     ELSE COALESCE(po.SellingPriceOverride, si."Selling Price") END) * 1.05, 2) AS MinPrice,
+     ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+               THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+               ELSE 0 END END) * 1.05, 2) AS MinPrice,
               COALESCE(si."CostPrice", 0) AS CostPrice,
               CASE
                 WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
@@ -3311,16 +3377,17 @@ def admin_brand_margins():
         action = request.form.get("action")
         
         if action == "update_default":
-            # Update default margin (use_admin_price is updated via API toggle)
+            # Update default margins (use_admin_price is updated via API toggle)
             try:
                 new_default = float(request.form.get("default_margin", 15.0))
+                new_default_admin_extra = float(request.form.get("default_admin_extra_margin", 0.0))
                 cur.execute("""
                     UPDATE brand_margins 
-                    SET margin_percent = ?, edited_by = ?, edited_at = datetime('now')
+                    SET margin_percent = ?, admin_extra_margin_percent = ?, edited_by = ?, edited_at = datetime('now')
                     WHERE brand_name = '__DEFAULT__'
-                """, (new_default, session.get("username", "admin")))
+                """, (new_default, new_default_admin_extra, session.get("username", "admin")))
                 conn.commit()
-                message = f"Default margin updated to {new_default}%"
+                message = f"Default margins updated (brand margin {new_default}%, admin extra {new_default_admin_extra}%)"
                 message_type = "success"
             except ValueError:
                 message = "Invalid margin value"
@@ -3331,17 +3398,19 @@ def admin_brand_margins():
             brand_name = request.form.get("brand_name", "").strip()
             try:
                 margin = float(request.form.get("margin_percent", 15.0))
+                admin_extra = float(request.form.get("admin_extra_margin_percent", 0.0))
                 if brand_name:
                     cur.execute("""
-                        INSERT INTO brand_margins (brand_name, margin_percent, edited_by)
-                        VALUES (?, ?, ?)
+                        INSERT INTO brand_margins (brand_name, margin_percent, admin_extra_margin_percent, edited_by)
+                        VALUES (?, ?, ?, ?)
                         ON CONFLICT(brand_name) DO UPDATE SET
                             margin_percent = excluded.margin_percent,
+                            admin_extra_margin_percent = excluded.admin_extra_margin_percent,
                             edited_by = excluded.edited_by,
                             edited_at = datetime('now')
-                    """, (brand_name, margin, session.get("username", "admin")))
+                    """, (brand_name, margin, admin_extra, session.get("username", "admin")))
                     conn.commit()
-                    message = f"Margin for '{brand_name}' updated to {margin}%"
+                    message = f"Margins for '{brand_name}' updated (brand margin {margin}%, admin extra {admin_extra}%)"
                     message_type = "success"
             except ValueError:
                 message = "Invalid margin value"
@@ -3418,11 +3487,12 @@ def admin_brand_margins():
                     message = "Please upload an Excel file (.xlsx or .xls)"
                     message_type = "danger"
     
-    # Get default margin and use_admin_price
-    cur.execute("SELECT margin_percent, COALESCE(use_admin_price, 1) FROM brand_margins WHERE brand_name = '__DEFAULT__'")
+    # Get default margin, use_admin_price and admin extra margin
+    cur.execute("SELECT margin_percent, COALESCE(use_admin_price, 1), COALESCE(admin_extra_margin_percent, 0) FROM brand_margins WHERE brand_name = '__DEFAULT__'")
     row = cur.fetchone()
     default_margin = row[0] if row else 15.0
     default_use_admin_price = bool(row[1]) if row else True
+    default_admin_extra_margin = float(row[2] or 0.0) if row else 0.0
     
     # Get all unique manufacturers from stock_items
     cur.execute('SELECT DISTINCT "Manufacturer Name" FROM stock_items WHERE "Manufacturer Name" IS NOT NULL AND "Manufacturer Name" != "" ORDER BY "Manufacturer Name"')
@@ -3431,15 +3501,15 @@ def admin_brand_margins():
     all_manufacturers = [m for m in all_manufacturers if (m or "").strip().upper() not in effective_hidden]
 
     # Get all brand margins (excluding default)
-    cur.execute("SELECT rowid, brand_name, margin_percent, COALESCE(use_admin_price, 1), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
+    cur.execute("SELECT rowid, brand_name, margin_percent, COALESCE(use_admin_price, 1), COALESCE(admin_extra_margin_percent, 0), edited_by, edited_at FROM brand_margins WHERE brand_name != '__DEFAULT__' ORDER BY brand_name")
     brand_margins = cur.fetchall()
 
     # Build case-insensitive lookup: key = lowercase brand name
     brand_margins_dict = {}
     brand_margins_by_lower = {}
     for row in brand_margins:
-        rowid, bname, margin, use_admin, edited_by, edited_at = row
-        entry = {"margin": margin, "use_admin_price": bool(use_admin), "edited_by": edited_by, "edited_at": edited_at, "db_name": bname, "rowid": rowid}
+        rowid, bname, margin, use_admin, admin_extra_margin, edited_by, edited_at = row
+        entry = {"margin": margin, "use_admin_price": bool(use_admin), "admin_extra_margin_percent": float(admin_extra_margin or 0.0), "edited_by": edited_by, "edited_at": edited_at, "db_name": bname, "rowid": rowid}
         brand_margins_dict[bname] = entry
         lower_key = bname.strip().lower()
         if lower_key not in brand_margins_by_lower:
@@ -3451,7 +3521,7 @@ def admin_brand_margins():
     mfg_lower_map = {m.strip().lower(): m for m in all_manufacturers}
     orphan_cleaned = 0
     for row in brand_margins:
-        rowid, bname, margin, use_admin, edited_by, edited_at = row
+        rowid, bname, margin, use_admin, admin_extra_margin, edited_by, edited_at = row
         lower_key = bname.strip().lower()
         actual_name = mfg_lower_map.get(lower_key)
         if actual_name and bname != actual_name:
@@ -3478,6 +3548,7 @@ def admin_brand_margins():
                 "name": mfg,
                 "margin": brand_margins_dict[mfg]["margin"],
                 "use_admin_price": brand_margins_dict[mfg]["use_admin_price"],
+                "admin_extra_margin_percent": brand_margins_dict[mfg]["admin_extra_margin_percent"],
                 "is_custom": True,
                 "edited_by": brand_margins_dict[mfg]["edited_by"],
                 "edited_at": brand_margins_dict[mfg]["edited_at"]
@@ -3488,6 +3559,7 @@ def admin_brand_margins():
                 "name": mfg,
                 "margin": entry["margin"],
                 "use_admin_price": entry["use_admin_price"],
+                "admin_extra_margin_percent": entry["admin_extra_margin_percent"],
                 "is_custom": True,
                 "edited_by": entry["edited_by"],
                 "edited_at": entry["edited_at"]
@@ -3497,6 +3569,7 @@ def admin_brand_margins():
                 "name": mfg,
                 "margin": default_margin,
                 "use_admin_price": default_use_admin_price,
+                "admin_extra_margin_percent": default_admin_extra_margin,
                 "is_custom": False,
                 "edited_by": None,
                 "edited_at": None
@@ -3510,6 +3583,7 @@ def admin_brand_margins():
                 "name": bname,
                 "margin": entry["margin"],
                 "use_admin_price": entry["use_admin_price"],
+                "admin_extra_margin_percent": entry["admin_extra_margin_percent"],
                 "is_custom": True,
                 "is_orphan": True,
                 "edited_by": entry["edited_by"],
@@ -3526,6 +3600,7 @@ def admin_brand_margins():
                          brands=brands_list,
                          default_margin=default_margin,
                          default_use_admin_price=default_use_admin_price,
+                         default_admin_extra_margin=default_admin_extra_margin,
                          search_query=search_query,
                          message=message,
                          message_type=message_type,
@@ -3583,8 +3658,8 @@ def api_update_brand_use_admin_price():
     with get_db_connection(db_path, timeout=10.0) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO brand_margins (brand_name, margin_percent, use_admin_price, edited_by)
-            VALUES (?, 15.0, ?, ?)
+            INSERT INTO brand_margins (brand_name, margin_percent, use_admin_price, admin_extra_margin_percent, edited_by)
+            VALUES (?, 15.0, ?, 0.0, ?)
             ON CONFLICT(brand_name) DO UPDATE SET
                 use_admin_price = ?,
                 edited_by = ?,
@@ -3620,8 +3695,8 @@ def api_update_brand_margin():
     with get_db_connection(db_path, timeout=10.0) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO brand_margins (brand_name, margin_percent, edited_by)
-            VALUES (?, ?, ?)
+            INSERT INTO brand_margins (brand_name, margin_percent, use_admin_price, admin_extra_margin_percent, edited_by)
+            VALUES (?, ?, 1, 0.0, ?)
             ON CONFLICT(brand_name) DO UPDATE SET
                 margin_percent = excluded.margin_percent,
                 edited_by = excluded.edited_by,
@@ -3629,6 +3704,43 @@ def api_update_brand_margin():
         """, (brand_name, margin, session.get("username", "admin")))
     
     return jsonify(ok=True, brand_name=brand_name, margin_percent=margin)
+
+
+@app.route("/api/brand-admin-extra-margin", methods=["POST"])
+def api_update_brand_admin_extra_margin():
+    """API endpoint to update extra margin % on admin-edited price for a brand."""
+    if "username" not in session:
+        return jsonify(ok=False, error="Unauthorized"), 401
+
+    data = request.get_json(silent=True) or {}
+    brand_name = (data.get("brand_name") or "").strip()
+    extra_margin = data.get("admin_extra_margin_percent")
+
+    if not brand_name:
+        return jsonify(ok=False, error="Missing brand name"), 400
+
+    try:
+        extra_margin = float(extra_margin)
+        if extra_margin < 0 or extra_margin > 1000:
+            raise ValueError("Extra margin must be between 0 and 1000")
+    except (ValueError, TypeError) as e:
+        return jsonify(ok=False, error=f"Invalid extra margin: {e}"), 400
+
+    db_path = DB_PATHS["DIP"]
+    ensure_brand_margins_table(db_path)
+
+    with get_db_connection(db_path, timeout=10.0) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO brand_margins (brand_name, margin_percent, use_admin_price, admin_extra_margin_percent, edited_by)
+            VALUES (?, 15.0, 1, ?, ?)
+            ON CONFLICT(brand_name) DO UPDATE SET
+                admin_extra_margin_percent = excluded.admin_extra_margin_percent,
+                edited_by = excluded.edited_by,
+                edited_at = datetime('now')
+        """, (brand_name, extra_margin, session.get("username", "admin")))
+
+    return jsonify(ok=True, brand_name=brand_name, admin_extra_margin_percent=extra_margin)
 
 
 @app.route("/api/alabama-margin", methods=["POST"])
