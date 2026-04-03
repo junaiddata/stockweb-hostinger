@@ -171,6 +171,8 @@ cython_debug/
 
 
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
 *.xlsx
 
