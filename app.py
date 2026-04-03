@@ -4292,9 +4292,30 @@ def admin_price_edit_history():
         ]
 
     edits.sort(key=lambda e: (e["edited_at"] or "", e["item_code"] or ""), reverse=True)
-    edits = edits[:5000]
+    edits = edits[:5000]  # Hard cap for page responsiveness
 
     total_edits = len(edits)
+    try:
+        page = int((request.args.get("page") or "1").strip())
+    except Exception:
+        page = 1
+    try:
+        per_page = int((request.args.get("per_page") or "100").strip())
+    except Exception:
+        per_page = 100
+
+    if page < 1:
+        page = 1
+    if per_page not in (50, 100, 200, 500):
+        per_page = 100
+
+    total_pages = max(1, (total_edits + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paged_edits = edits[start_idx:end_idx]
     by_branch = {}
     by_admin = {}
     for e in edits:
@@ -4307,12 +4328,17 @@ def admin_price_edit_history():
 
     return render_template(
         "admin_price_edit_history.html",
-        edits=edits,
+        edits=paged_edits,
         total_edits=total_edits,
         branch_stats=branch_stats,
         admin_stats=admin_stats,
         search_query=search_query,
         branch_filter=branch_filter,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        start_row=(start_idx + 1) if total_edits else 0,
+        end_row=min(end_idx, total_edits),
         retail_branches=RETAIL_BRANCHES,
         message=message,
         message_type="warning" if message else None,

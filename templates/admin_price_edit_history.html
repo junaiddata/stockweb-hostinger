@@ -122,6 +122,38 @@
             border: 1px solid rgba(255, 193, 7, 0.35);
             color: #ffe082;
         }
+        .table-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.78);
+        }
+        .pagination {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .page-link {
+            padding: 7px 11px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.04);
+        }
+        .page-link:hover { background: rgba(255, 255, 255, 0.1); }
+        .page-current {
+            font-size: 12px;
+            color: #90caf9;
+            padding: 0 4px;
+        }
     </style>
 </head>
 <body>
@@ -175,12 +207,22 @@
                     <option value="{{ rb }}" {% if branch_filter == rb %}selected{% endif %}>{{ rb }}</option>
                     {% endfor %}
                 </select>
+                <select name="per_page">
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50 / page</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100 / page</option>
+                    <option value="200" {% if per_page == 200 %}selected{% endif %}>200 / page</option>
+                    <option value="500" {% if per_page == 500 %}selected{% endif %}>500 / page</option>
+                </select>
                 <button type="submit" class="btn">Apply</button>
             </form>
         </div>
 
         <div class="card">
             {% if edits %}
+            <div class="table-meta">
+                <div>Showing {{ start_row }}-{{ end_row }} of {{ total_edits }} edits</div>
+                <div>Page {{ page }} of {{ total_pages }}</div>
+            </div>
             <div class="table-wrap">
                 <table>
                     <thead>
@@ -216,6 +258,17 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+            <div class="pagination">
+                {% if page > 1 %}
+                <a class="page-link" href="{{ url_for('admin_price_edit_history', search=search_query, branch=branch_filter, per_page=per_page, page=1) }}">First</a>
+                <a class="page-link" href="{{ url_for('admin_price_edit_history', search=search_query, branch=branch_filter, per_page=per_page, page=page-1) }}">Prev</a>
+                {% endif %}
+                <span class="page-current">Page {{ page }} / {{ total_pages }}</span>
+                {% if page < total_pages %}
+                <a class="page-link" href="{{ url_for('admin_price_edit_history', search=search_query, branch=branch_filter, per_page=per_page, page=page+1) }}">Next</a>
+                <a class="page-link" href="{{ url_for('admin_price_edit_history', search=search_query, branch=branch_filter, per_page=per_page, page=total_pages) }}">Last</a>
+                {% endif %}
             </div>
             {% else %}
             <p class="empty">No edited prices found for the selected filter.</p>
