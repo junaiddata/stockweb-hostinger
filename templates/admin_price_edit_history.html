@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Price Edit History</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+        .top-nav {
+            background: rgba(10, 25, 41, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .nav-title { font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.95); }
+        .nav-right { display: flex; gap: 10px; }
+        .nav-btn {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+        }
+        .nav-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+        .container { max-width: 1300px; margin: 0 auto; padding: 24px; }
+        .title { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+        .subtitle { color: rgba(255, 255, 255, 0.65); font-size: 14px; margin-bottom: 20px; }
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .stat {
+            background: rgba(0, 0, 0, 0.24);
+            border-radius: 10px;
+            padding: 12px;
+        }
+        .stat .value { font-size: 26px; color: #4fc3f7; font-weight: 700; }
+        .stat .label { font-size: 11px; color: rgba(255, 255, 255, 0.6); text-transform: uppercase; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .chip {
+            font-size: 12px;
+            background: rgba(33, 150, 243, 0.18);
+            border: 1px solid rgba(33, 150, 243, 0.35);
+            color: #bbdefb;
+            border-radius: 999px;
+            padding: 5px 10px;
+        }
+        .filters { display: flex; gap: 10px; flex-wrap: wrap; }
+        input[type="text"], select {
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.22);
+            color: #fff;
+            font-family: inherit;
+            min-width: 220px;
+        }
+        .btn {
+            padding: 10px 16px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-family: inherit;
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+            color: #001e3c;
+        }
+        .table-wrap {
+            overflow-x: auto;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        table { width: 100%; border-collapse: collapse; min-width: 980px; }
+        thead { background: rgba(255, 255, 255, 0.06); }
+        th, td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); text-align: left; }
+        th { color: #90caf9; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+        td.right { text-align: right; }
+        .badge {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-selling { background: rgba(102, 187, 106, 0.18); color: #a5d6a7; border: 1px solid rgba(102, 187, 106, 0.35); }
+        .badge-cost { background: rgba(255, 167, 38, 0.18); color: #ffe0b2; border: 1px solid rgba(255, 167, 38, 0.35); }
+        .empty { color: rgba(255, 255, 255, 0.7); font-size: 14px; }
+        .alert {
+            padding: 12px 14px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            font-size: 13px;
+        }
+        .alert-warning {
+            background: rgba(255, 193, 7, 0.15);
+            border: 1px solid rgba(255, 193, 7, 0.35);
+            color: #ffe082;
+        }
+    </style>
+</head>
+<body>
+    <nav class="top-nav">
+        <div class="nav-title">Admin Price Edit History</div>
+        <div class="nav-right">
+            <a class="nav-btn" href="{{ url_for('home') }}">Home</a>
+            <a class="nav-btn" href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1 class="title">Price Edits by Admin</h1>
+        <p class="subtitle">Tracks item prices edited by admin users across DIP, RASALKHORE, ALABAMA, and retail branches.</p>
+        {% if message and message_type == 'warning' %}
+        <div class="alert alert-warning">{{ message }}</div>
+        {% endif %}
+
+        <div class="card">
+            <div class="stats-grid">
+                <div class="stat">
+                    <div class="value">{{ total_edits }}</div>
+                    <div class="label">Visible Edits</div>
+                </div>
+            </div>
+            {% if branch_stats %}
+            <div class="chips">
+                {% for name, count in branch_stats %}
+                    <span class="chip">{{ name }}: {{ count }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if admin_stats %}
+            <div class="chips">
+                {% for name, count in admin_stats %}
+                    <span class="chip">{{ name or 'unknown' }}: {{ count }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <form method="get" class="filters">
+                <input type="text" name="search" value="{{ search_query }}" placeholder="Search item, description, brand, or admin">
+                <select name="branch">
+                    <option value="">All branches</option>
+                    <option value="DIP" {% if branch_filter == 'DIP' %}selected{% endif %}>DIP</option>
+                    <option value="RASALKHORE" {% if branch_filter == 'RASALKHORE' %}selected{% endif %}>RASALKHORE</option>
+                    <option value="ALABAMA" {% if branch_filter == 'ALABAMA' %}selected{% endif %}>ALABAMA</option>
+                    {% for rb in retail_branches %}
+                    <option value="{{ rb }}" {% if branch_filter == rb %}selected{% endif %}>{{ rb }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn">Apply</button>
+            </form>
+        </div>
+
+        <div class="card">
+            {% if edits %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Edited At</th>
+                            <th>Branch</th>
+                            <th>Item Code</th>
+                            <th>Description</th>
+                            <th>Manufacturer</th>
+                            <th>Field</th>
+                            <th class="right">Edited Price (AED)</th>
+                            <th>Edited By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in edits %}
+                        <tr>
+                            <td>{{ e.edited_at or '-' }}</td>
+                            <td>{{ e.branch }}</td>
+                            <td>{{ e.item_code }}</td>
+                            <td>{{ e.description }}</td>
+                            <td>{{ e.manufacturer }}</td>
+                            <td>
+                                {% if e.field == 'cost' %}
+                                    <span class="badge badge-cost">Cost</span>
+                                {% else %}
+                                    <span class="badge badge-selling">Selling</span>
+                                {% endif %}
+                            </td>
+                            <td class="right">{{ '%.2f'|format(e.price) }}</td>
+                            <td>{{ e.edited_by or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty">No edited prices found for the selected filter.</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

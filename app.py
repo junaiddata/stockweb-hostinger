@@ -1640,7 +1640,7 @@ def stock_page(branch):
                             col_desc = 'si."Description"'
                             col_mfg  = 'si."Manufacturer Name"'
                         else:
-                            # RASALKHORE page: DIP price + 5% (no price overrides)
+                            # RASALKHORE page: use local admin override directly; otherwise DIP price + 5%
                             ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
                             dip_db_path = os.path.abspath(DB_PATHS["DIP"])
                             cursor.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
@@ -1653,16 +1653,18 @@ def stock_page(branch):
                             si."Warehouse Code",
                             si."Stock Quantity",
                             si."Free Stock",
-                            ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
+                            CASE WHEN ras_po.SellingPriceOverride IS NOT NULL THEN ROUND(ras_po.SellingPriceOverride, 2)
+                                 ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
      ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
                THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
-               ELSE 0 END END) * 1.05, 2) AS "Selling Price",
+               ELSE 0 END END) * 1.05, 2) END AS "Selling Price",
                             si."CostPrice"
                                 FROM stock_items si
                                 LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = si."ItemCode"
                                 LEFT JOIN dip.price_overrides dip_po ON dip_po.ItemCode = dip_si."ItemCode"
+                                LEFT JOIN price_overrides ras_po ON ras_po.ItemCode = si."ItemCode"
                                 LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(COALESCE(dip_si."Manufacturer Name", si."Manufacturer Name")))
                                 WHERE
                             """
@@ -1700,8 +1702,11 @@ def stock_page(branch):
                         else:
                             sql_query += ' AND CAST(si."Stock Quantity" AS REAL) <= 0'
                     elif branch != "ALABAMA" and hide_zero_stock:
-                        # Changed 0 to 10, and added CAST to fix number comparison
-                        sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
+                        if branch == "DIP":
+                            # DIP page rule: hide only when both DIP and RAS stocks are zero
+                            sql_query += ' AND (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)) > 0'
+                        else:
+                            sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
                     if branch == "ALABAMA" and hide_zero_cost:
                         sql_query += ' AND CAST("JunaidCost" AS REAL) > 0'
 
@@ -1971,6 +1976,8 @@ def item_detail(branch, item_code):
         except: pass
         try: ensure_override_table(dip_db) # For generic admin overrides
         except: pass
+        try: ensure_override_table(DB_PATHS["RASALKHORE"])
+        except: pass
         try: ensure_brand_margins_table(dip_db)
         except: pass
 
@@ -2006,19 +2013,22 @@ def item_detail(branch, item_code):
                     COALESCE(rsi."Stock Quantity", 0)
                 ) AS TotalStock,            -- 12
                 
-                -- PRICE LOGIC: DIP price + 5% (no retail overrides)
-                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+                -- PRICE LOGIC: Use RAS admin override directly; otherwise DIP-derived price + 5%
+                CASE WHEN rpo.SellingPriceOverride IS NOT NULL THEN ROUND(rpo.SellingPriceOverride, 2)
+                     ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
                      THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
                      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
                      ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
                                THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
-                               ELSE 0 END END) * 1.05, 2) AS MinPrice, -- 13
+                               ELSE 0 END END) * 1.05, 2) END AS MinPrice, -- 13
                 si."CostPrice"              -- 14
             FROM stock_items si
             LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(si."ItemCode")
             LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
             LEFT JOIN price_overrides po
                 ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+            LEFT JOIN ras.price_overrides rpo
+                ON TRIM(rpo.ItemCode) = TRIM(si."ItemCode")
             WHERE TRIM(si."ItemCode") = TRIM(?)
         """, (item_code,))
         
@@ -2178,16 +2188,18 @@ def item_detail(branch, item_code):
             SELECT
                 si."ItemCode", si."Upc Code", si."Description", si."Manufacturer Name", si."Warehouse Code",
                 si."Stock Quantity", si."Free Stock",
-                ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
+                CASE WHEN ras_po.SellingPriceOverride IS NOT NULL THEN ROUND(ras_po.SellingPriceOverride, 2)
+                     ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(dip_si."CostPrice", si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(COALESCE(dip_si."CostPrice", si."CostPrice") AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", si."Selling Price")
      ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
                THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
-               ELSE 0 END END) * 1.05, 2) AS "Selling Price",
+               ELSE 0 END END) * 1.05, 2) END AS "Selling Price",
                 si."CostPrice"
             FROM stock_items si
             LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = si."ItemCode"
             LEFT JOIN dip.price_overrides dip_po ON dip_po.ItemCode = dip_si."ItemCode"
+            LEFT JOIN price_overrides ras_po ON ras_po.ItemCode = si."ItemCode"
             LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(COALESCE(dip_si."Manufacturer Name", si."Manufacturer Name")))
             WHERE TRIM(si."ItemCode") = TRIM(?)
         """, (item_code,))
@@ -3135,6 +3147,7 @@ def allstores():
 
         # 1. Ensure tables exist before querying
         ensure_override_table(dip_db)
+        ensure_override_table(DB_PATHS["RASALKHORE"])
         ensure_retail_override_table(dip_db)
 
         conn = sqlite3.connect(dip_db)
@@ -3172,12 +3185,13 @@ def allstores():
                 COALESCE(si."QUSAIS", 0) +
                 COALESCE(rsi."Stock Quantity", 0)
               ) AS TotalStock,
-              ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
+              CASE WHEN rpo.SellingPriceOverride IS NOT NULL THEN ROUND(rpo.SellingPriceOverride, 2)
+                   ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0 AND CAST(COALESCE(si."CostPrice", 0) AS REAL) > 0
      THEN ROUND(CAST(si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
      WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN si."Selling Price"
      ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
                THEN ROUND(COALESCE(po.SellingPriceOverride, si."Selling Price") * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
-               ELSE 0 END END) * 1.05, 2) AS MinPrice,
+               ELSE 0 END END) * 1.05, 2) END AS MinPrice,
               COALESCE(si."CostPrice", 0) AS CostPrice,
               CASE
                 WHEN LOWER(si."Manufacturer Name") LIKE 'ariston%'
@@ -3188,6 +3202,7 @@ def allstores():
             LEFT JOIN ras.stock_items rsi ON rsi."ItemCode" = si."ItemCode"
             LEFT JOIN brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(si."Manufacturer Name"))
             LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+            LEFT JOIN ras.price_overrides rpo ON TRIM(rpo.ItemCode) = TRIM(si."ItemCode")
             WHERE {where_sql}{stock_filter}
             ORDER BY si."ItemCode"
         """
@@ -4115,6 +4130,193 @@ def get_cost_price_overrides(db_path: str) -> dict:
         return overrides
     except sqlite3.OperationalError:
         return {}  # Return empty dict if database is locked
+
+
+@app.route("/admin/price-edit-history", methods=["GET"])
+def admin_price_edit_history():
+    """Show a unified list of item prices edited by admin users."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+
+    search_query = request.args.get("search", "").strip().lower()
+    branch_filter = (request.args.get("branch") or "").strip().upper()
+    valid_branches = {"DIP", "RASALKHORE", "ALABAMA", *RETAIL_BRANCHES}
+    if branch_filter and branch_filter not in valid_branches:
+        branch_filter = ""
+
+    edits = []
+    lock_warnings = []
+
+    def _append_edit_rows(rows, branch_name, field_name):
+        for row in rows:
+            item_code, description, manufacturer, value, edited_by, edited_at = row
+            if value is None:
+                continue
+            edits.append({
+                "branch": branch_name,
+                "item_code": item_code,
+                "description": description or "",
+                "manufacturer": manufacturer or "",
+                "field": field_name,
+                "price": round(float(value), 2),
+                "edited_by": edited_by or "",
+                "edited_at": edited_at or "",
+            })
+
+    # DIP + RASALKHORE + ALABAMA from price_overrides
+    for branch_name in ("DIP", "RASALKHORE", "ALABAMA"):
+        if branch_filter and branch_filter != branch_name:
+            continue
+        db_path = DB_PATHS.get(branch_name)
+        if not db_path or not os.path.exists(db_path):
+            continue
+
+        try:
+            ensure_override_table(db_path)
+            with get_db_connection(db_path, timeout=8.0, retries=4) as conn:
+                cur = conn.cursor()
+                if branch_name == "ALABAMA":
+                    dip_path = os.path.abspath(DB_PATHS["DIP"])
+                    ras_path = os.path.abspath(DB_PATHS["RASALKHORE"])
+                    cur.execute(f'ATTACH DATABASE "{dip_path}" AS dip')
+                    cur.execute(f'ATTACH DATABASE "{ras_path}" AS ras')
+                    cur.execute("""
+                        SELECT
+                            po.ItemCode,
+                            COALESCE(dsi."Description", rsi."Description", '') AS description,
+                            COALESCE(dsi."Manufacturer Name", rsi."Manufacturer Name", '') AS manufacturer,
+                            po.SellingPriceOverride,
+                            po.edited_by,
+                            po.edited_at
+                        FROM price_overrides po
+                        LEFT JOIN dip.stock_items dsi ON TRIM(dsi."ItemCode") = TRIM(po.ItemCode)
+                        LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(po.ItemCode)
+                        WHERE po.SellingPriceOverride IS NOT NULL
+                    """)
+                    _append_edit_rows(cur.fetchall(), branch_name, "selling")
+
+                    cur.execute("""
+                        SELECT
+                            po.ItemCode,
+                            COALESCE(dsi."Description", rsi."Description", '') AS description,
+                            COALESCE(dsi."Manufacturer Name", rsi."Manufacturer Name", '') AS manufacturer,
+                            po.CostPriceOverride,
+                            po.edited_by,
+                            po.edited_at
+                        FROM price_overrides po
+                        LEFT JOIN dip.stock_items dsi ON TRIM(dsi."ItemCode") = TRIM(po.ItemCode)
+                        LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(po.ItemCode)
+                        WHERE po.CostPriceOverride IS NOT NULL
+                    """)
+                    _append_edit_rows(cur.fetchall(), branch_name, "cost")
+                    try:
+                        cur.execute("DETACH DATABASE dip")
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute("DETACH DATABASE ras")
+                    except Exception:
+                        pass
+                else:
+                    cur.execute("""
+                        SELECT
+                            po.ItemCode,
+                            COALESCE(si."Description", '') AS description,
+                            COALESCE(si."Manufacturer Name", '') AS manufacturer,
+                            po.SellingPriceOverride,
+                            po.edited_by,
+                            po.edited_at
+                        FROM price_overrides po
+                        LEFT JOIN stock_items si ON TRIM(si."ItemCode") = TRIM(po.ItemCode)
+                        WHERE po.SellingPriceOverride IS NOT NULL
+                    """)
+                    _append_edit_rows(cur.fetchall(), branch_name, "selling")
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower():
+                lock_warnings.append(f"{branch_name}: temporarily busy, showing available data only.")
+            else:
+                lock_warnings.append(f"{branch_name}: could not read edits right now.")
+        except Exception:
+            lock_warnings.append(f"{branch_name}: could not read edits right now.")
+
+    # Retail overrides are stored in DIP DB
+    if not branch_filter or branch_filter in RETAIL_BRANCHES:
+        dip_db = DB_PATHS.get("DIP")
+        if dip_db and os.path.exists(dip_db):
+            try:
+                ensure_retail_override_table(dip_db)
+                with get_db_connection(dip_db, timeout=8.0, retries=4) as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT
+                            ro.ItemCode,
+                            COALESCE(si."Description", '') AS description,
+                            COALESCE(si."Manufacturer Name", '') AS manufacturer,
+                            ro.SellingPriceOverride,
+                            ro.edited_by,
+                            ro.edited_at,
+                            ro.Branch
+                        FROM retail_overrides ro
+                        LEFT JOIN stock_items si ON TRIM(si."ItemCode") = TRIM(ro.ItemCode)
+                        WHERE ro.SellingPriceOverride IS NOT NULL
+                    """)
+                    for row in cur.fetchall():
+                        item_code, description, manufacturer, value, edited_by, edited_at, retail_branch = row
+                        if branch_filter and retail_branch != branch_filter:
+                            continue
+                        edits.append({
+                            "branch": retail_branch,
+                            "item_code": item_code,
+                            "description": description or "",
+                            "manufacturer": manufacturer or "",
+                            "field": "selling",
+                            "price": round(float(value), 2),
+                            "edited_by": edited_by or "",
+                            "edited_at": edited_at or "",
+                        })
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e).lower():
+                    lock_warnings.append("Retail: temporarily busy, showing available data only.")
+                else:
+                    lock_warnings.append("Retail: could not read edits right now.")
+            except Exception:
+                lock_warnings.append("Retail: could not read edits right now.")
+
+    if search_query:
+        edits = [
+            e for e in edits
+            if search_query in (e["item_code"] or "").lower()
+            or search_query in (e["description"] or "").lower()
+            or search_query in (e["manufacturer"] or "").lower()
+            or search_query in (e["edited_by"] or "").lower()
+        ]
+
+    edits.sort(key=lambda e: (e["edited_at"] or "", e["item_code"] or ""), reverse=True)
+    edits = edits[:5000]
+
+    total_edits = len(edits)
+    by_branch = {}
+    by_admin = {}
+    for e in edits:
+        by_branch[e["branch"]] = by_branch.get(e["branch"], 0) + 1
+        by_admin[e["edited_by"] or "unknown"] = by_admin.get(e["edited_by"] or "unknown", 0) + 1
+
+    branch_stats = sorted(by_branch.items(), key=lambda x: x[1], reverse=True)
+    admin_stats = sorted(by_admin.items(), key=lambda x: x[1], reverse=True)
+    message = " ".join(lock_warnings) if lock_warnings else None
+
+    return render_template(
+        "admin_price_edit_history.html",
+        edits=edits,
+        total_edits=total_edits,
+        branch_stats=branch_stats,
+        admin_stats=admin_stats,
+        search_query=search_query,
+        branch_filter=branch_filter,
+        retail_branches=RETAIL_BRANCHES,
+        message=message,
+        message_type="warning" if message else None,
+    )
 
 
 @app.route("/admin/cost-price-overrides", methods=["GET", "POST"])

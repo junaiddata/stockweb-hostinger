@@ -310,7 +310,7 @@
 
               <tbody>
                 {% for item in results %}
-                  <tr class="{% if item[5] <= 0 %}zero-stock{% endif %}">
+                  <tr class="{% if branch == 'DIP' %}{% if (item[5] or 0) <= 0 and (item[6] or 0) <= 0 %}zero-stock{% endif %}{% else %}{% if item[5] <= 0 %}zero-stock{% endif %}{% endif %}">
                     <td>{{ loop.index }}</td>
 
                     <!-- Common columns -->
