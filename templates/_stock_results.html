@@ -70,7 +70,7 @@
         {% if branch == 'ALABAMA' %}
             <div class="results-cards-container">
                 {% for item in results %}
-                <div class="result-card">
+                <div class="result-card {% if item[5]|float <= 0 %}zero-stock{% endif %}">
                     <div class="card-header">
                         <span class="description">{{ item[2] }}</span>
                     </div>
@@ -78,8 +78,11 @@
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
                         <p><strong>Manufacturer:</strong> {{ item[3] }}</p>
-                        <p><strong>Cost Price:</strong> {{ "%.2f"|format(item[4]) }} AED</p>
-                        <p><strong>Selling Price:</strong> {{ "%.2f"|format(item[5]) }} AED</p>
+                        <p><strong>Stock:</strong> {{ item[5]|int }}</p>
+                        <p><strong>Min. Selling Price:</strong> {{ "%.2f"|format(item[7]) }} AED</p>
+                        {% if session.username %}
+                        <p><strong>Cost Price:</strong> {{ "%.2f"|format(item[6]) }} AED</p>
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
@@ -92,45 +95,25 @@
                         <th>UPC</th>
                         <th>Description</th>
                         <th>Manufacturer</th>
-                        <th class="right">Cost Price</th>
-                        <th class="right">Selling Price</th>
+                        <th class="right">Stock</th>
+                        <th class="right">Min. Selling Price</th>
+                        {% if session.username %}<th class="right">Cost Price</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in results %}
-                    <tr>
+                    <tr class="{% if item[5]|float <= 0 %}zero-stock{% endif %}">
                         <td>{{ item[0] }}</td>
                         <td>{{ item[1] }}</td>
                         <td>{{ item[2] }}</td>
                         <td>{{ item[3] }}</td>
+                        <td class="right">{{ item[5]|int }}</td>
                         {% if session.username %}
-                        <!-- Inline Edit: Cost Price (ALABAMA) -->
-                        <td class="right">
-                          <!-- VIEW MODE -->
-                          <span class="min-price-view" data-value="{{ item[4] }}">
-                            <span class="min-price-text">{{ "%.2f"|format(item[4]) }}</span> AED
-                            <button type="button"
-                                    class="mini-btn"
-                                    data-item-code="{{ item[0] }}"
-                                    data-branch="{{ branch }}"
-                                    data-field="cost"
-                                    onclick="startEditMinPrice(this)">
-                              Edit
-                            </button>
-                            <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
-                          </span>
-                          <!-- EDIT MODE -->
-                          <span class="min-price-edit" style="display:none;">
-                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[4] }}" style="width:110px;">
-                            <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
-                            <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
-                          </span>
-                        </td>
                         <!-- Inline Edit: Selling Price (ALABAMA) -->
                         <td class="right">
                           <!-- VIEW MODE -->
-                          <span class="min-price-view" data-value="{{ item[5] }}">
-                            <span class="min-price-text">{{ "%.2f"|format(item[5]) }}</span> AED
+                          <span class="min-price-view" data-value="{{ item[7] }}">
+                            <span class="min-price-text">{{ "%.2f"|format(item[7]) }}</span> AED
                             <button type="button"
                                     class="mini-btn"
                                     data-item-code="{{ item[0] }}"
@@ -143,14 +126,35 @@
                           </span>
                           <!-- EDIT MODE -->
                           <span class="min-price-edit" style="display:none;">
-                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[5] }}" style="width:110px;">
+                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[7] }}" style="width:110px;">
+                            <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
+                            <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
+                          </span>
+                        </td>
+                        <!-- Inline Edit: Cost Price (ALABAMA) -->
+                        <td class="right">
+                          <!-- VIEW MODE -->
+                          <span class="min-price-view" data-value="{{ item[6] }}">
+                            <span class="min-price-text">{{ "%.2f"|format(item[6]) }}</span> AED
+                            <button type="button"
+                                    class="mini-btn"
+                                    data-item-code="{{ item[0] }}"
+                                    data-branch="{{ branch }}"
+                                    data-field="cost"
+                                    onclick="startEditMinPrice(this)">
+                              Edit
+                            </button>
+                            <small class="save-status" style="margin-left:6px; opacity:.7;"></small>
+                          </span>
+                          <!-- EDIT MODE -->
+                          <span class="min-price-edit" style="display:none;">
+                            <input type="number" step="0.01" min="0" class="min-price-input" value="{{ item[6] }}" style="width:110px;">
                             <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
                             <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
                           </span>
                         </td>
                         {% else %}
-                          <td class="right">{{ "%.2f"|format(item[4]) }} AED</td>
-                          <td class="right">{{ "%.2f"|format(item[5]) }} AED</td>
+                          <td class="right">{{ "%.2f"|format(item[7]) }} AED</td>
                         {% endif %}
                     </tr>
                     {% endfor %}
@@ -400,4 +404,3 @@
     {% endif %}
 </section>
 {% endif %}
-

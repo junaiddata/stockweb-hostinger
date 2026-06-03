@@ -255,16 +255,14 @@
                     {% else %}
                         
                         <div class="key-stats">
-                            {% if branch != 'ALABAMA' %}
-                                <div class="stat stock-stat">
-                                    <span class="label">Stock Quantity</span>
-                                    <span class="value">{{ item.StockQuantity|int }}</span>
-                                </div>
-                                {# <div class="stat stock-stat">
-                                    <span class="label">Free Stock</span>
-                                    <span class="value">{{ item.FreeStock|int }}</span>
-                                </div> #}
-                            {% endif %}
+                            <div class="stat stock-stat">
+                                <span class="label">Stock Quantity</span>
+                                <span class="value">{{ item.StockQuantity|int }}</span>
+                            </div>
+                            {# <div class="stat stock-stat">
+                                <span class="label">Free Stock</span>
+                                <span class="value">{{ item.FreeStock|int }}</span>
+                            </div> #}
                             
                             {% if item.MinSellingPrice is not none %}
                             <div class="stat">
@@ -287,7 +285,7 @@
                         <dl>
                             <dt>Manufacturer:</dt>
                             <dd>{{ item.ManufacturerName }}</dd>
-                            {% if item.WarehouseCode %}
+                            {% if item.WarehouseCode and branch != 'ALABAMA' %}
                             <dt>Warehouse:</dt>
                             <dd>{{ item.WarehouseCode }}</dd>
                             {% endif %}

@@ -514,7 +514,6 @@
                             <span class="slider"></span>
                             Bulk search
                         </label>
-                        {% if branch != 'ALABAMA' %}
                         <label class="toggle-switch">
                             <input type="checkbox" id="hideZeroStock" name="hideZeroStock" {% if hide_zero_stock %}checked{% endif %}>
                             <span class="slider"></span>
@@ -525,13 +524,6 @@
                             <input type="checkbox" id="showOnlyZeroStock" name="showOnlyZeroStock" {% if show_only_zero_stock|default(false) %}checked{% endif %}>
                             <span class="slider"></span>
                             Show only zero stock items
-                        </label>
-                        {% endif %}
-                        {% else %}
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="hideZeroCost" name="hideZeroCost" {% if hide_zero_cost %}checked{% endif %}>
-                            <span class="slider"></span>
-                            Hide cost price = 0
                         </label>
                         {% endif %}
                         

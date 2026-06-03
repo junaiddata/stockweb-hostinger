@@ -2,6 +2,8 @@ from flask import Flask, request, render_template, redirect, url_for
 import sqlite3
 import pandas as pd
 import os
+
+from flask_cors import CORS
 from flask import Flask, request, render_template, redirect, url_for, session, flash, Response
 
 # Load .env for API_BASE_URL, API_TIMEOUT (VPS sync via tunnel)
@@ -90,6 +92,8 @@ def init_device_db():
 init_device_db()
 
 app = Flask(__name__)
+
+
 
 # ============================================================================
 # SSE (Server-Sent Events) for Real-Time Updates
@@ -1245,33 +1249,41 @@ def process_excel(filepath, keep_admin_prices=True):
 
         # Read with Item No. as string so ItemCode stays consistent
         df = pd.read_excel(xls, sheet_name=sheet_name, dtype={'Item No.': str})
+        df.columns = df.columns.str.strip()
 
         # --- Branch-specific normalization ---
         if branch == "ALABAMA":
-            # Alabama has no stock / min selling price in your app
             column_mapping = {
                 "Item No.": "ItemCode",
                 "Item Description": "Description",
                 "Manufacturer Name": "Manufacturer Name",
                 "Upc Code": "Upc Code",
+                "Warehouse Code": "Warehouse Code",
+                "In Stock": "Stock Quantity",
+                "Average Price": "CostPrice",
                 "Cost Price": "CostPrice",
             }
             df.rename(columns=column_mapping, inplace=True)
 
-            # Keep only columns we need
-            keep_cols = ["ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice"]
+            keep_cols = [
+                "ItemCode", "Upc Code", "Description", "Manufacturer Name",
+                "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+            ]
             for col in keep_cols:
                 if col not in df.columns:
-                    # sensible defaults
-                    df[col] = "" if col != "CostPrice" else ""
+                    df[col] = 0 if col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice"] else ""
             df = df[keep_cols]
 
-            # Cleanup
             df["ItemCode"] = df["ItemCode"].fillna("").astype(str).str.strip()
             df["Upc Code"] = df["Upc Code"].fillna("").astype(str).str.strip()
             df["Description"] = df["Description"].fillna("").astype(str).str.strip()
             df["Manufacturer Name"] = df["Manufacturer Name"].fillna("").astype(str).str.strip()
-            df["CostPrice"] = df["CostPrice"].fillna("").astype(str).str.strip()
+            df["Warehouse Code"] = df["Warehouse Code"].fillna("").astype(str).str.strip()
+            for numeric_col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice"]:
+                df[numeric_col] = pd.to_numeric(
+                    df[numeric_col].fillna(0).astype(str).str.replace(",", "", regex=False).str.strip(),
+                    errors="coerce"
+                ).fillna(0)
 
         else:
             # DIP & RASALKHORE share the same base headings
@@ -1421,6 +1433,44 @@ def ensure_stock_items_indexes(db_path: str):
             else:
                 raise
 
+def ensure_stock_items_columns(cur, columns):
+    """Add missing stock_items columns needed by the current upload shape."""
+    cur.execute("PRAGMA table_info(stock_items)")
+    existing = {row[1] for row in cur.fetchall()}
+    real_columns = {
+        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+        "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS",
+    }
+    for col in columns:
+        if col in existing:
+            continue
+        col_type = "REAL DEFAULT 0" if col in real_columns else "TEXT"
+        cur.execute(f'ALTER TABLE stock_items ADD COLUMN "{col}" {col_type}')
+
+ALABAMA_STOCK_COLUMNS = [
+    "ItemCode", "Upc Code", "Description", "Manufacturer Name",
+    "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+]
+
+def ensure_alabama_stock_items_table(db_path: str):
+    """Ensure Alabama stock_items supports the uploaded daily stock format."""
+    with get_db_connection(db_path, timeout=10.0) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_items (
+                "ItemCode" TEXT PRIMARY KEY,
+                "Upc Code" TEXT,
+                "Description" TEXT,
+                "Manufacturer Name" TEXT,
+                "Warehouse Code" TEXT,
+                "Stock Quantity" REAL DEFAULT 0,
+                "Free Stock" REAL DEFAULT 0,
+                "Selling Price" REAL DEFAULT 0,
+                "CostPrice" REAL DEFAULT 0
+            )
+        """)
+        ensure_stock_items_columns(cur, ALABAMA_STOCK_COLUMNS)
+
 def update_database(branch, df, keep_admin_prices=True):
     """Persist DataFrame into per-branch DB using INSERT OR REPLACE (safe, no table drop)."""
     db_path = DB_PATHS[branch]
@@ -1453,6 +1503,7 @@ def update_database(branch, df, keep_admin_prices=True):
                 """)
 
         columns = list(df.columns)
+        ensure_stock_items_columns(cur, columns)
         placeholders = ", ".join(["?"] * len(columns))
         col_names = ", ".join(f'"{c}"' for c in columns)
         sql = f'INSERT OR REPLACE INTO stock_items ({col_names}) VALUES ({placeholders})'
@@ -1521,14 +1572,11 @@ def stock_page(branch):
         query = request.form.get("query", "").strip().lower()
         bulk_item_codes = request.form.get("bulk_item_codes", "")
         bulk_codes = parse_bulk_item_codes(bulk_item_codes)
-        if branch != "ALABAMA":
-            hide_zero_stock = request.form.get("hideZeroStock") == "on"
-            if session.get("username"):
-                show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
-                if show_only_zero_stock:
-                    hide_zero_stock = False  # Mutually exclusive
-        else:
-            hide_zero_cost = request.form.get("hideZeroCost") == "on"
+        hide_zero_stock = request.form.get("hideZeroStock") == "on"
+        if session.get("username"):
+            show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
+            if show_only_zero_stock:
+                hide_zero_stock = False  # Mutually exclusive
 
         if query or bulk_codes:
             db_path = DB_PATHS[branch]
@@ -1538,6 +1586,9 @@ def stock_page(branch):
             ensure_brand_margins_table(DB_PATHS["DIP"])
             if branch == "RASALKHORE":
                 ensure_override_table(DB_PATHS["DIP"])  # DIP price_overrides for DIP+5% calc
+            if branch == "ALABAMA":
+                ensure_alabama_stock_items_table(db_path)
+                ensure_override_table(DB_PATHS["DIP"])
             
             # Use connection helper with retry logic
             try:
@@ -1549,61 +1600,39 @@ def stock_page(branch):
 
                     # --- Build SELECT per-branch ---
                     if branch == "ALABAMA":
-                        # ALABAMA shows all items from Junaid (DIP + RASALKHORE) with calculated Cost and Selling Price
-                        # Attach both DIP and RASALKHORE databases
+                        # Alabama shows its own uploaded stock/cost. Selling price is DIP selling price + 3% unless overridden.
                         dip_db_path = os.path.abspath(DB_PATHS["DIP"])
-                        ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
-                        alabama_db_path = os.path.abspath(DB_PATHS["ALABAMA"])
                         cursor.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
-                        cursor.execute(f'ATTACH DATABASE "{ras_db_path}" AS ras')
-                        cursor.execute(f'ATTACH DATABASE "{alabama_db_path}" AS alabama')
                         
-                        # Get Junaid cost price (prefer DIP, fallback to RASALKHORE)
-                        # We'll calculate Alabama Cost and Selling Price in Python after fetching
-                        # IMPORTANT: wrap UNION in a subquery so we can safely append search filters (SQLite limitation)
                         sql_query = """
                     SELECT
-                        t.ItemCode            AS "ItemCode",
-                        t.UpcCode             AS "Upc Code",
-                        t.Description         AS "Description",
-                        t.ManufacturerName    AS "Manufacturer Name",
-                        t.JunaidCost          AS "JunaidCost",
-                        t.CostOverride        AS "CostOverride",
-                        t.SellingOverride     AS "SellingOverride"
-                    FROM (
-                        SELECT
-                            dip_si."ItemCode"             AS ItemCode,
-                            dip_si."Upc Code"             AS UpcCode,
-                            dip_si."Description"          AS Description,
-                            dip_si."Manufacturer Name"    AS ManufacturerName,
-                            dip_si."CostPrice"            AS JunaidCost,
-                            po.CostPriceOverride          AS CostOverride,
-                            po.SellingPriceOverride      AS SellingOverride
-                        FROM dip.stock_items dip_si
-                        LEFT JOIN alabama.price_overrides po ON po.ItemCode = dip_si."ItemCode"
-                        WHERE dip_si."ItemCode" IS NOT NULL
-                        
-                        UNION
-                        
-                        SELECT
-                            ras_si."ItemCode"              AS ItemCode,
-                            ras_si."Upc Code"              AS UpcCode,
-                            ras_si."Description"           AS Description,
-                            ras_si."Manufacturer Name"     AS ManufacturerName,
-                            ras_si."CostPrice"             AS JunaidCost,
-                            po.CostPriceOverride           AS CostOverride,
-                            po.SellingPriceOverride        AS SellingOverride
-                        FROM ras.stock_items ras_si
-                        LEFT JOIN dip.stock_items dip_si ON dip_si."ItemCode" = ras_si."ItemCode"
-                        LEFT JOIN alabama.price_overrides po ON po.ItemCode = ras_si."ItemCode"
-                        WHERE dip_si."ItemCode" IS NULL AND ras_si."ItemCode" IS NOT NULL
-                    ) t
+                        si."ItemCode",
+                        si."Upc Code",
+                        si."Description",
+                        si."Manufacturer Name",
+                        si."Warehouse Code",
+                        COALESCE(si."Stock Quantity", 0) AS "Stock Quantity",
+                        ROUND(COALESCE(po.CostPriceOverride, si."CostPrice", 0), 2) AS "CostPrice",
+                        CASE WHEN po.SellingPriceOverride IS NOT NULL THEN ROUND(po.SellingPriceOverride, 2)
+                             ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
+                                               AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
+                                               AND CAST(COALESCE(dip_si."CostPrice", 0) AS REAL) > 0
+                                          THEN ROUND(CAST(dip_si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
+                                          WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", 0)
+                                          ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                                                    THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                                                    ELSE 0 END END) * 1.03, 2) END AS "Selling Price"
+                    FROM stock_items si
+                    LEFT JOIN dip.stock_items dip_si ON TRIM(dip_si."ItemCode") = TRIM(si."ItemCode")
+                    LEFT JOIN dip.price_overrides dip_po ON TRIM(dip_po.ItemCode) = TRIM(dip_si."ItemCode")
+                    LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(dip_si."Manufacturer Name"))
+                    LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
                     WHERE
                 """
-                        col_item = 't.ItemCode'
-                        col_upc  = 't.UpcCode'
-                        col_desc = 't.Description'
-                        col_mfg  = 't.ManufacturerName'
+                        col_item = 'si."ItemCode"'
+                        col_upc  = 'si."Upc Code"'
+                        col_desc = 'si."Description"'
+                        col_mfg  = 'si."Manufacturer Name"'
                     else:
                         # Non-ALABAMA
                         if branch == "DIP":
@@ -1707,85 +1736,17 @@ def stock_page(branch):
                             sql_query += ' AND (COALESCE(si."Stock Quantity", 0) + COALESCE(rsi."Stock Quantity", 0)) > 0'
                         else:
                             sql_query += ' AND CAST(si."Stock Quantity" AS REAL) > 0'
-                    if branch == "ALABAMA" and hide_zero_cost:
-                        sql_query += ' AND CAST("JunaidCost" AS REAL) > 0'
+                    if branch == "ALABAMA" and show_only_zero_stock:
+                        sql_query += ' AND CAST(COALESCE(si."Stock Quantity", 0) AS REAL) <= 0'
+                    elif branch == "ALABAMA" and hide_zero_stock:
+                        sql_query += ' AND CAST(COALESCE(si."Stock Quantity", 0) AS REAL) > 0'
 
                     # --- Execute ---
                     cursor.execute(sql_query, params)
                     results = cursor.fetchall()
 
-                    # If ALABAMA page, calculate Cost and Selling Price from Junaid data
-                    if branch == "ALABAMA":
-                        # Load Alabama margins
-                        alabama_db = DB_PATHS["ALABAMA"]
-                        ensure_alabama_margins_table(alabama_db)
-                        try:
-                            with get_db_connection(alabama_db, timeout=10.0) as alabama_conn:
-                                alabama_cur = alabama_conn.cursor()
-                                alabama_cur.execute("SELECT brand_name, cost_margin_percent, brand_margin_percent FROM alabama_margins")
-                                alabama_margins_map = {}
-                                default_cost_margin = 10.0
-                                default_brand_margin = 15.0
-                                for row in alabama_cur.fetchall():
-                                    if row[0] == "__DEFAULT__":
-                                        default_cost_margin = row[1]
-                                        default_brand_margin = row[2]
-                                    else:
-                                        alabama_margins_map[row[0].lower()] = (row[1], row[2])
-                        except sqlite3.OperationalError:
-                            # If locked, use defaults
-                            alabama_margins_map = {}
-                            default_cost_margin = 10.0
-                            default_brand_margin = 15.0
-                        
-                        # Process results: Calculate Alabama Cost and Selling Price
-                        # Results format: (ItemCode, Upc Code, Description, Manufacturer Name, JunaidCost, CostOverride, SellingOverride)
-                        processed_results = []
-                        for row in results:
-                            item_code, upc_code, description, manufacturer, junaid_cost, cost_override, selling_override = row
-                            
-                            # Use override if exists, otherwise use Junaid cost
-                            base_cost = float(cost_override) if cost_override is not None else float(junaid_cost or 0)
-                            
-                            # Get margins for this manufacturer (case-insensitive)
-                            manufacturer_lower = (manufacturer or "").lower()
-                            if manufacturer_lower in alabama_margins_map:
-                                cost_margin, brand_margin = alabama_margins_map[manufacturer_lower]
-                            else:
-                                cost_margin = default_cost_margin
-                                brand_margin = default_brand_margin
-                            
-                            # Calculate Alabama Cost = Junaid Cost * (1 + cost_margin/100)
-                            alabama_cost = round(base_cost * (1 + cost_margin / 100), 2) if base_cost > 0 else 0.0
-                            
-                            # Selling price: use override if exists, else calculate from cost + brand margin
-                            if selling_override is not None and float(selling_override) >= 0:
-                                alabama_selling_price = round(float(selling_override), 2)
-                            else:
-                                alabama_selling_price = selling_price_from_cost_and_markup_margin(alabama_cost, brand_margin)
-                            
-                            # Return: ItemCode, Upc Code, Description, Manufacturer Name, CostPrice, Selling Price
-                            processed_results.append((
-                                item_code,
-                                upc_code or "",
-                                description or "",
-                                manufacturer or "",
-                                alabama_cost,
-                                alabama_selling_price
-                            ))
-                        
-                        results = processed_results
-                        
-                        # Detach databases
-                        try:
-                            cursor.execute("DETACH DATABASE dip")
-                            cursor.execute("DETACH DATABASE ras")
-                            cursor.execute("DETACH DATABASE alabama")
-                        except:
-                            pass
-
                     # If DIP page, append Sold Stock as last column (index 10)
-                    elif branch == "DIP":
+                    if branch == "DIP":
                         if session.get("username"):
                             # OPTIMIZATION: Only fetch sold data if we have results (don't block on empty search)
                             sold_map = {}
@@ -1821,6 +1782,11 @@ def stock_page(branch):
                     if branch == "DIP":
                         try:
                             cursor.execute("DETACH DATABASE ras")
+                        except Exception:
+                            pass
+                    elif branch == "ALABAMA":
+                        try:
+                            cursor.execute("DETACH DATABASE dip")
                         except Exception:
                             pass
             except sqlite3.OperationalError as e:
@@ -2113,59 +2079,59 @@ def item_detail(branch, item_code):
     # 3. ALABAMA
     # ==========================================
     if branch == "ALABAMA":
-        # Get item from DIP or RASALKHORE (prefer DIP)
-        dip_db = DB_PATHS["DIP"]
-        ras_db = DB_PATHS["RASALKHORE"]
         alabama_db = DB_PATHS["ALABAMA"]
-        
-        # Try DIP first
-        dip_conn = sqlite3.connect(dip_db)
-        dip_cur = dip_conn.cursor()
-        dip_cur.execute('SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice" FROM stock_items WHERE "ItemCode" = ?', (item_code,))
-        item = dip_cur.fetchone()
-        dip_conn.close()
-        
-        # If not in DIP, try RASALKHORE
-        if not item:
-            ras_conn = sqlite3.connect(ras_db)
-            ras_cur = ras_conn.cursor()
-            ras_cur.execute('SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name", "CostPrice" FROM stock_items WHERE "ItemCode" = ?', (item_code,))
-            item = ras_cur.fetchone()
-            ras_conn.close()
+        dip_db_path = os.path.abspath(DB_PATHS["DIP"])
+        ensure_alabama_stock_items_table(alabama_db)
+        ensure_override_table(alabama_db)
+        ensure_override_table(DB_PATHS["DIP"])
+        ensure_brand_margins_table(DB_PATHS["DIP"])
 
-        if item:
-            # Get cost and selling overrides if exist
-            alabama_conn = sqlite3.connect(alabama_db)
-            alabama_cur = alabama_conn.cursor()
-            ensure_override_table(alabama_db)
-            alabama_cur.execute('SELECT CostPriceOverride, SellingPriceOverride FROM price_overrides WHERE ItemCode = ?', (item_code,))
-            override_row = alabama_cur.fetchone()
-            cost_override = override_row[0] if override_row else None
-            selling_override = override_row[1] if override_row and len(override_row) > 1 else None
-            
-            # Get Alabama margins
-            ensure_alabama_margins_table(alabama_db)
-            manufacturer = item[3] or ""
-            cost_margin, brand_margin = get_alabama_margins(alabama_db, manufacturer)
-            alabama_conn.close()
-            
-            # Calculate prices
-            junaid_cost = float(cost_override) if cost_override is not None else float(item[4] or 0)
-            alabama_cost = round(junaid_cost * (1 + cost_margin / 100), 2) if junaid_cost > 0 else 0.0
-            if selling_override is not None and float(selling_override) >= 0:
-                alabama_selling_price = round(float(selling_override), 2)
-            else:
-                alabama_selling_price = selling_price_from_cost_and_markup_margin(alabama_cost, brand_margin)
-            
-            item_data = {
-                "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
-                "ManufacturerName": item[3], "WarehouseCode": None,
-                "StockQuantity": None, "FreeStock": None,
-                "CostPrice": alabama_cost if "username" in session else None,
-                "MinSellingPrice": alabama_selling_price if "username" in session else None,
-            }
-            return render_template("item_detail.html", item=item_data, branch=branch)
-        return render_template("item_detail.html", item=None, branch=branch), 404
+        conn = sqlite3.connect(alabama_db)
+        cur = conn.cursor()
+        cur.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
+        cur.execute("""
+            SELECT
+                si."ItemCode",
+                si."Upc Code",
+                si."Description",
+                si."Manufacturer Name",
+                si."Warehouse Code",
+                COALESCE(si."Stock Quantity", 0) AS "Stock Quantity",
+                ROUND(COALESCE(po.CostPriceOverride, si."CostPrice", 0), 2) AS "CostPrice",
+                CASE WHEN po.SellingPriceOverride IS NOT NULL THEN ROUND(po.SellingPriceOverride, 2)
+                     ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
+                                       AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
+                                       AND CAST(COALESCE(dip_si."CostPrice", 0) AS REAL) > 0
+                                  THEN ROUND(CAST(dip_si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
+                                  WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", 0)
+                                  ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                                            THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                                            ELSE 0 END END) * 1.03, 2) END AS "Selling Price"
+            FROM stock_items si
+            LEFT JOIN dip.stock_items dip_si ON TRIM(dip_si."ItemCode") = TRIM(si."ItemCode")
+            LEFT JOIN dip.price_overrides dip_po ON TRIM(dip_po.ItemCode) = TRIM(dip_si."ItemCode")
+            LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(dip_si."Manufacturer Name"))
+            LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+            WHERE TRIM(si."ItemCode") = TRIM(?)
+        """, (item_code,))
+        item = cur.fetchone()
+        try:
+            cur.execute("DETACH DATABASE dip")
+        except Exception:
+            pass
+        conn.close()
+
+        if not item:
+            return render_template("item_detail.html", item=None, branch=branch), 404
+
+        item_data = {
+            "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
+            "ManufacturerName": item[3], "WarehouseCode": item[4],
+            "StockQuantity": item[5], "FreeStock": None,
+            "CostPrice": item[6] if "username" in session else None,
+            "MinSellingPrice": item[7],
+        }
+        return render_template("item_detail.html", item=item_data, branch=branch)
 
     # ==========================================
     # 4. HEAOFFICE / RASALKHORE (Standard)
@@ -2438,33 +2404,15 @@ def update_min_price():
         return jsonify(ok=False, error=f"DB not found for {branch}: {os.path.abspath(db_path or '')}"), 500
 
     try:
+        if branch == "ALABAMA":
+            ensure_alabama_stock_items_table(db_path)
         ensure_override_table(db_path)
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
 
-        # item must exist (Alabama: check DIP/RAS; others: check local stock_items)
-        if branch == "ALABAMA":
-            dip_db = DB_PATHS.get("DIP")
-            ras_db = DB_PATHS.get("RASALKHORE")
-            found = False
-            if dip_db and os.path.exists(dip_db):
-                dip_cur = sqlite3.connect(dip_db).cursor()
-                dip_cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
-                if dip_cur.fetchone():
-                    found = True
-                dip_cur.connection.close()
-            if not found and ras_db and os.path.exists(ras_db):
-                ras_cur = sqlite3.connect(ras_db).cursor()
-                ras_cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
-                if ras_cur.fetchone():
-                    found = True
-                ras_cur.connection.close()
-            if not found:
-                return jsonify(ok=False, error=f'Item not found in DIP/RAS: "{item_code}"'), 404
-        else:
-            cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
-            if not cur.fetchone():
-                return jsonify(ok=False, error=f'Item not found in stock_items: "{item_code}"'), 404
+        cur.execute('SELECT 1 FROM "stock_items" WHERE "ItemCode" = ?', (item_code,))
+        if not cur.fetchone():
+            return jsonify(ok=False, error=f'Item not found in stock_items: "{item_code}"'), 404
 
         if branch == "ALABAMA":
             if field == "selling":
@@ -4183,12 +4131,13 @@ def admin_price_edit_history():
                     cur.execute("""
                         SELECT
                             po.ItemCode,
-                            COALESCE(dsi."Description", rsi."Description", '') AS description,
-                            COALESCE(dsi."Manufacturer Name", rsi."Manufacturer Name", '') AS manufacturer,
+                            COALESCE(si."Description", dsi."Description", rsi."Description", '') AS description,
+                            COALESCE(si."Manufacturer Name", dsi."Manufacturer Name", rsi."Manufacturer Name", '') AS manufacturer,
                             po.SellingPriceOverride,
                             po.edited_by,
                             po.edited_at
                         FROM price_overrides po
+                        LEFT JOIN stock_items si ON TRIM(si."ItemCode") = TRIM(po.ItemCode)
                         LEFT JOIN dip.stock_items dsi ON TRIM(dsi."ItemCode") = TRIM(po.ItemCode)
                         LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(po.ItemCode)
                         WHERE po.SellingPriceOverride IS NOT NULL
@@ -4198,12 +4147,13 @@ def admin_price_edit_history():
                     cur.execute("""
                         SELECT
                             po.ItemCode,
-                            COALESCE(dsi."Description", rsi."Description", '') AS description,
-                            COALESCE(dsi."Manufacturer Name", rsi."Manufacturer Name", '') AS manufacturer,
+                            COALESCE(si."Description", dsi."Description", rsi."Description", '') AS description,
+                            COALESCE(si."Manufacturer Name", dsi."Manufacturer Name", rsi."Manufacturer Name", '') AS manufacturer,
                             po.CostPriceOverride,
                             po.edited_by,
                             po.edited_at
                         FROM price_overrides po
+                        LEFT JOIN stock_items si ON TRIM(si."ItemCode") = TRIM(po.ItemCode)
                         LEFT JOIN dip.stock_items dsi ON TRIM(dsi."ItemCode") = TRIM(po.ItemCode)
                         LEFT JOIN ras.stock_items rsi ON TRIM(rsi."ItemCode") = TRIM(po.ItemCode)
                         WHERE po.CostPriceOverride IS NOT NULL
