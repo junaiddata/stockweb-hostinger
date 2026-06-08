@@ -1471,6 +1471,37 @@ def ensure_alabama_stock_items_table(db_path: str):
         """)
         ensure_stock_items_columns(cur, ALABAMA_STOCK_COLUMNS)
 
+        # Repair missing PRIMARY KEY: if ItemCode has no pk constraint, migrate to correct schema
+        cur.execute("PRAGMA table_info(stock_items)")
+        cols_info = cur.fetchall()
+        has_pk = any(row[5] == 1 for row in cols_info)  # column index 5 is pk flag
+        if not has_pk:
+            cur.execute("ALTER TABLE stock_items RENAME TO stock_items_old")
+            cur.execute("""
+                CREATE TABLE stock_items (
+                    "ItemCode" TEXT PRIMARY KEY,
+                    "Upc Code" TEXT,
+                    "Description" TEXT,
+                    "Manufacturer Name" TEXT,
+                    "Warehouse Code" TEXT,
+                    "Stock Quantity" REAL DEFAULT 0,
+                    "Free Stock" REAL DEFAULT 0,
+                    "Selling Price" REAL DEFAULT 0,
+                    "CostPrice" REAL DEFAULT 0
+                )
+            """)
+            cur.execute("""
+                INSERT OR IGNORE INTO stock_items (
+                    "ItemCode", "Upc Code", "Description", "Manufacturer Name",
+                    "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
+                )
+                SELECT "ItemCode", "Upc Code", "Description", "Manufacturer Name",
+                       "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice"
+                FROM stock_items_old
+                WHERE rowid IN (SELECT MAX(rowid) FROM stock_items_old GROUP BY "ItemCode")
+            """)
+            cur.execute("DROP TABLE stock_items_old")
+
 def update_database(branch, df, keep_admin_prices=True):
     """Persist DataFrame into per-branch DB using INSERT OR REPLACE (safe, no table drop)."""
     db_path = DB_PATHS[branch]
