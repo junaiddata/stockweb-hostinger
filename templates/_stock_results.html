@@ -231,6 +231,8 @@
             {% if branch == 'DIP' %}
             <div class="results-cards-container">
                 {% for item in results %}
+                {% set _mfg = (item[3] or '')|string|trim|upper %}
+                {% set _hide_min = _mfg.startswith('PEGLER') and (item[5] or 0)|float < 5 %}
                 <a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}"
                    class="result-card {% if (item[5] or 0) <= 0 and (item[6] or 0) <= 0 %}zero-stock{% endif %}">
                     <div class="card-header">
@@ -250,7 +252,11 @@
 
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
-                        <p><strong>Min. Price:</strong> {{ item[8] }} AED</p>
+                        {% if _hide_min and not session.username %}
+                            <p><strong>Min. Price:</strong> Check price</p>
+                        {% else %}
+                            <p><strong>Min. Price:</strong> {{ item[8] }} AED</p>
+                        {% endif %}
                         {% if session.username %}
                             <p><strong>Cost Price:</strong> {{ item[9] }} AED</p>
                         {% endif %}
@@ -314,6 +320,8 @@
 
               <tbody>
                 {% for item in results %}
+                  {% set _mfg = (item[3] or '')|string|trim|upper %}
+                  {% set _hide_min = branch == 'DIP' and _mfg.startswith('PEGLER') and (item[5] or 0)|float < 5 %}
                   <tr class="{% if branch == 'DIP' %}{% if (item[5] or 0) <= 0 and (item[6] or 0) <= 0 %}zero-stock{% endif %}{% else %}{% if item[5] <= 0 %}zero-stock{% endif %}{% endif %}">
                     <td>{{ loop.index }}</td>
 
@@ -347,6 +355,9 @@
                       </style>
 
                       <td class="right">
+                        {% if _hide_min and not session.username %}
+                        <span class="min-price-hidden">Check price</span>
+                        {% else %}
                         <span class="min-price-view" data-value="{{ item[8] }}">
                           <span class="min-price-text">{{ item[8] }}</span> AED
                           {% if session.username %}
@@ -363,6 +374,7 @@
                           <button type="button" class="mini-btn" onclick="saveMinPriceRow(this)">Save</button>
                           <button type="button" class="mini-btn neutral" onclick="cancelEditMinPrice(this)">Cancel</button>
                         </span>
+                        {% endif %}
                       </td>
 
                       {% if session.username %}
