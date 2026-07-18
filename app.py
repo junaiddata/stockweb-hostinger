@@ -2001,7 +2001,7 @@ def item_detail(branch, item_code):
                 COALESCE(si."ABUDHABI", 0), -- 9
                 COALESCE(si."QUSAIS", 0),   -- 10
                 COALESCE(rsi."Stock Quantity", 0) AS RAS_Stock, -- 11
-                
+
                 -- Calculated Total
                 (
                     COALESCE(si."AJMAN", 0) + COALESCE(si."NAH", 0) +
@@ -2055,7 +2055,7 @@ def item_detail(branch, item_code):
             "RAS": row[11],
             # Totals & Price
             "TotalStock": row[12],
-            "MinSellingPrice": row[13], 
+            "MinSellingPrice": row[13],
             "CostPrice": row[14] if "username" in session else None,
         }
         return render_template("item_detail.html", item=item_data, branch=branch)
@@ -3156,9 +3156,9 @@ def allstores():
               COALESCE(si."QUSAIS", 0),
               COALESCE(rsi."Stock Quantity", 0) AS RAS_Stock,
               (
-                COALESCE(si."AJMAN", 0) + 
+                COALESCE(si."AJMAN", 0) +
                 COALESCE(si."NAH", 0) +
-                COALESCE(si."DEIRA", 0) + 
+                COALESCE(si."DEIRA", 0) +
                 COALESCE(si."DEIRA2", 0) +
                 COALESCE(si."ABUDHABI", 0) +
                 COALESCE(si."QUSAIS", 0) +
@@ -3203,7 +3203,7 @@ def allstores():
         matched_count = len(results)
         try:
             branch_totals = {
-                "AJMAN": 0.0, "NAH": 0.0, "DEIRA": 0.0, 
+                "AJMAN": 0.0, "NAH": 0.0, "DEIRA": 0.0,
                 "DEIRA2": 0.0, "ABUDHABI": 0.0, "QUSAIS": 0.0, "RAS": 0.0
             }
             # Calculate branch totals from results
