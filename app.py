@@ -1597,58 +1597,9 @@ def parse_bulk_item_codes(raw_codes: str, max_codes: int = 900):
             break
     return unique_codes
 
-_MANUFACTURER_CACHE = {}   # db_path -> (fetched_at, [names])
-_MANUFACTURER_CACHE_TTL = 300  # seconds
-
-
-def get_manufacturer_names(branch: str):
-    """Distinct manufacturer names for the branch, used by the search Manufacturer picker."""
-    branch = (branch or "DIP").upper()
-    db_path = DB_PATHS.get(branch, DB_PATHS["DIP"])  # retail branches / ALLSTORES read DIP stock
-
-    cached = _MANUFACTURER_CACHE.get(db_path)
-    if cached and (time.time() - cached[0]) < _MANUFACTURER_CACHE_TTL:
-        return cached[1]
-
-    names = set()
-    try:
-        with get_db_connection(db_path, timeout=10.0) as conn:
-            cur = conn.cursor()
-            cur.execute('''
-                SELECT DISTINCT TRIM("Manufacturer Name")
-                FROM stock_items
-                WHERE "Manufacturer Name" IS NOT NULL AND TRIM("Manufacturer Name") != ""
-            ''')
-            names = {row[0] for row in cur.fetchall() if row and row[0]}
-    except Exception as e:
-        print(f"Manufacturer list error (non-blocking) for {branch}: {e}")
-        return cached[1] if cached else []
-
-    result = sorted(names, key=lambda n: n.upper())
-    _MANUFACTURER_CACHE[db_path] = (time.time(), result)
-    return result
-
-
-def build_manufacturer_filter(col_mfg: str, manufacturer: str, branch: str):
-    """SQL condition for the Manufacturer picker.
-
-    Exact match when the value is a manufacturer we know (i.e. picked from the list),
-    partial match while the user is still typing. Returns (sql, param) or (None, None).
-    """
-    value = (manufacturer or "").strip()
-    if not value:
-        return None, None
-
-    known = {n.strip().lower() for n in get_manufacturer_names(branch)}
-    if value.lower() in known:
-        return f"LOWER(TRIM({col_mfg})) = ?", value.lower()
-    return f"LOWER(TRIM({col_mfg})) LIKE ?", f"%{value.lower()}%"
-
-
 def stock_page(branch):
     results = None
     query = ""
-    manufacturer = ""
     bulk_item_codes = ""
     hide_zero_stock = False
     show_only_zero_stock = False
@@ -1656,7 +1607,6 @@ def stock_page(branch):
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
-        manufacturer = request.form.get("manufacturer", "").strip()
         bulk_item_codes = request.form.get("bulk_item_codes", "")
         bulk_codes = parse_bulk_item_codes(bulk_item_codes)
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
@@ -1665,7 +1615,7 @@ def stock_page(branch):
             if show_only_zero_stock:
                 hide_zero_stock = False  # Mutually exclusive
 
-        if query or bulk_codes or manufacturer:
+        if query or bulk_codes:
             db_path = DB_PATHS[branch]
             
             # make sure overrides table exists for JOINs
@@ -1808,15 +1758,6 @@ def stock_page(branch):
                                 )"""
                             )
                             params.extend([like, like, like, like])
-
-                    # Manufacturer filter (works alone or together with the text search)
-                    mfg_sql, mfg_param = build_manufacturer_filter(col_mfg, manufacturer, branch)
-                    if mfg_sql:
-                        conditions.append(mfg_sql)
-                        params.append(mfg_param)
-
-                    if not conditions:
-                        conditions.append("1=1")
 
                     sql_query += " AND ".join(conditions)
 
@@ -2005,7 +1946,6 @@ def stock_page(branch):
     ctx = dict(
         results=results,
         query=query,
-        manufacturer=manufacturer,
         hide_zero_stock=hide_zero_stock,
         show_only_zero_stock=show_only_zero_stock,
         hide_zero_cost=hide_zero_cost,
@@ -2021,7 +1961,6 @@ def stock_page(branch):
     if request.args.get("partial") == "1" or request.headers.get("X-Partial") == "1":
         return render_template("_stock_results.html", **ctx)
 
-    ctx["manufacturers"] = get_manufacturer_names(branch)
     return render_template("stock.html", **ctx)
 @app.route("/item/<branch>/<item_code>")
 def item_detail(branch, item_code):
@@ -3046,20 +2985,18 @@ def qusais():
 def retail_page(retail_branch):
     results = None
     query = ""
-    manufacturer = ""
     hide_zero_stock = False
     show_only_zero_stock = False
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
-        manufacturer = request.form.get("manufacturer", "").strip()
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
         if session.get("username"):
             show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
             if show_only_zero_stock:
                 hide_zero_stock = False  # Mutually exclusive
 
-        if query or manufacturer:
+        if query:
             db_path = DB_PATHS["DIP"]
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
@@ -3103,15 +3040,6 @@ def retail_page(retail_branch):
                 )""")
                 params.extend([like, like, like, like])
 
-            # Manufacturer filter (works alone or together with the text search)
-            mfg_sql, mfg_param = build_manufacturer_filter(col_mfg, manufacturer, retail_branch)
-            if mfg_sql:
-                conds.append(mfg_sql)
-                params.append(mfg_param)
-
-            if not conds:
-                conds.append("1=1")
-
             sql += " AND ".join(conds)
 
             if show_only_zero_stock:
@@ -3143,7 +3071,6 @@ def retail_page(retail_branch):
         "branch": retail_branch,
         "branch_total_value": branch_total_value,
         "matched_count": matched_count,
-        "manufacturer": manufacturer,
     }
 
     # Optional: expose a branch-specific key (e.g., ajman_total_value)
@@ -3154,7 +3081,6 @@ def retail_page(retail_branch):
     if request.args.get("partial") == "1" or request.headers.get("X-Partial") == "1":
         return render_template("_stock_results.html", **ctx)
 
-    ctx["manufacturers"] = get_manufacturer_names(retail_branch)
     return render_template("stock.html", **ctx)
 
 
@@ -3172,13 +3098,11 @@ def money(v):
 def allstores():
     results = None
     query = ""
-    manufacturer = ""
     hide_zero_stock = False
     show_only_zero_stock = False
 
     if request.method == "POST":
         query = (request.form.get("query") or "").strip().lower()
-        manufacturer = (request.form.get("manufacturer") or "").strip()
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
         if session.get("username"):
             show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
@@ -3186,27 +3110,22 @@ def allstores():
                 hide_zero_stock = False  # Mutually exclusive
 
         words = [w for w in query.split() if w]
-        parts = []
+        where_sql = "1=1"
         params = []
-        for w in words:
-            wlike = f"%{w}%"
-            parts.append(
-                """(
-                    LOWER(si."ItemCode") LIKE ? OR
-                    LOWER(si."Upc Code") LIKE ? OR
-                    LOWER(si."Description") LIKE ? OR
-                    LOWER(si."Manufacturer Name") LIKE ?
-                )"""
-            )
-            params.extend([wlike, wlike, wlike, wlike])
-
-        # Manufacturer filter (works alone or together with the text search)
-        mfg_sql, mfg_param = build_manufacturer_filter('si."Manufacturer Name"', manufacturer, "ALLSTORES")
-        if mfg_sql:
-            parts.append(mfg_sql)
-            params.append(mfg_param)
-
-        where_sql = " AND ".join(parts) if parts else "1=1"
+        if words:
+            parts = []
+            for w in words:
+                wlike = f"%{w}%"
+                parts.append(
+                    """(
+                        LOWER(si."ItemCode") LIKE ? OR
+                        LOWER(si."Upc Code") LIKE ? OR
+                        LOWER(si."Description") LIKE ? OR
+                        LOWER(si."Manufacturer Name") LIKE ?
+                    )"""
+                )
+                params.extend([wlike, wlike, wlike, wlike])
+            where_sql = " AND ".join(parts)
 
         dip_db = DB_PATHS["DIP"]
         ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
@@ -3314,7 +3233,6 @@ def allstores():
     ctx = {
         "results": results,
         "query": query,
-        "manufacturer": manufacturer,
         "hide_zero_stock": hide_zero_stock,
         "show_only_zero_stock": show_only_zero_stock,
         "hide_zero_cost": False,
@@ -3329,7 +3247,6 @@ def allstores():
     if request.args.get("partial") == "1" or request.headers.get("X-Partial") == "1":
         return render_template("_stock_results.html", **ctx)
 
-    ctx["manufacturers"] = get_manufacturer_names("ALLSTORES")
     return render_template("stock.html", **ctx)
 
 from flask import Response
