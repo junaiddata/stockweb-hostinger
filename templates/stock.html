@@ -280,6 +280,39 @@
 
         input[type="text"]:focus { border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
 
+        .manufacturer-wrapper {
+            margin-top: 0.85rem;
+        }
+
+        .manufacturer-wrapper label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-light);
+            margin-bottom: 0.45rem;
+        }
+
+        .manufacturer-input-row {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .manufacturer-input-row input[type="text"] {
+            padding-right: 44px;
+        }
+
+        #clearManufacturerBtn {
+            position: absolute; right: 6px; width: 32px; height: 32px; background: none; border: none;
+            color: var(--text-light); font-size: 1rem; cursor: pointer; transition: color 0.3s ease;
+            border-radius: 50%; display: none; align-items: center; justify-content: center;
+            padding: 0; min-width: 0;
+        }
+
+        #clearManufacturerBtn.is-visible { display: flex; }
+
+        #clearManufacturerBtn:hover { color: var(--primary-color); background-color: #f0f0f0; }
+
         .bulk-item-codes-wrapper {
             margin-top: 0.85rem;
             display: none;
@@ -488,7 +521,7 @@
                     <span class="page-header-icon">📦</span>
                     <div>
                         <h1>{{ branch|title }} Stock</h1>
-                        <div class="page-header-subtitle">Search inventory by code, UPC, or description</div>
+                        <div class="page-header-subtitle">Search inventory by code, UPC, description, or manufacturer</div>
                     </div>
                 </div>
                 <div class="live-indicator">
@@ -501,8 +534,21 @@
             <section class="search-section">
                 <form method="post" id="searchForm">
                     <div class="search-input-wrapper">
-                        <input type="text" name="query" placeholder="Enter Item Code, UPC, or Description" value="{{ query }}" autocomplete="off">
+                        <input type="text" name="query" placeholder="Enter Item Code, UPC, Description, or Manufacturer" value="{{ query }}" autocomplete="off">
                         <button type="button" id="voiceSearchBtn" aria-label="Search by voice">🎤</button>
+                    </div>
+                    <div class="manufacturer-wrapper">
+                        <label for="manufacturerInput">Manufacturer</label>
+                        <div class="manufacturer-input-row">
+                            <input type="text" id="manufacturerInput" name="manufacturer" list="manufacturerList"
+                                   placeholder="All manufacturers" value="{{ manufacturer|default('') }}" autocomplete="off">
+                            <button type="button" id="clearManufacturerBtn" title="Clear manufacturer">✕</button>
+                        </div>
+                        <datalist id="manufacturerList">
+                            {% for m in manufacturers|default([]) %}
+                            <option value="{{ m }}"></option>
+                            {% endfor %}
+                        </datalist>
                     </div>
                     <div class="bulk-item-codes-wrapper">
                         <label for="bulkItemCodes">Bulk item codes (new line, space, or comma separated)</label>
@@ -676,12 +722,27 @@
             bulkCodesEl.disabled = !shouldShowBulk;
         }
         if (bulkSearchToggleEl) bulkSearchToggleEl.addEventListener("change", syncBulkSearchVisibility);
+
+        const manufacturerEl = document.getElementById("manufacturerInput");
+        const clearManufacturerEl = document.getElementById("clearManufacturerBtn");
+
+        function syncManufacturerClear() {
+            if (!manufacturerEl || !clearManufacturerEl) return;
+            clearManufacturerEl.classList.toggle("is-visible", (manufacturerEl.value || "").trim().length > 0);
+        }
+        if (manufacturerEl) manufacturerEl.addEventListener("input", syncManufacturerClear);
+        if (clearManufacturerEl) clearManufacturerEl.addEventListener("click", () => {
+            manufacturerEl.value = "";
+            syncManufacturerClear();
+            manufacturerEl.focus();
+        });
         
         window.addEventListener("load", () => {
             hideZeroStockItems();
             showOnlyZeroStockItems();
             hideZeroCostItems();
             syncBulkSearchVisibility();
+            syncManufacturerClear();
         });
 
         function startVoiceSearch() {
