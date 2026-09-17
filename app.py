@@ -736,7 +736,46 @@ def fetch_sold_breakdown_map():
         print(f"Sold breakdown API error (using cache if available): {e}")
         # Return cached data even if expired, better than nothing
         return _sold_map_cache if _sold_map_cache else {}
-    
+
+# Separate cache for Alabama sold map (5 minute TTL) - kept independent from HO cache
+_alabama_sold_map_cache = {}
+_alabama_sold_map_cache_time = None
+
+def fetch_alabama_sold_map():
+    """
+    Returns: { "ITEMCODE": {"total": float, "total_2025": float, "total_2026": float}, ... }
+    Pulls from https://salesorder.junaidworld.com/alabama/api/item-analysis-totals/
+    Cached for 5 minutes; falls back to last cached data on error.
+    """
+    global _alabama_sold_map_cache, _alabama_sold_map_cache_time
+
+    import time
+    current_time = time.time()
+    if _alabama_sold_map_cache_time and (current_time - _alabama_sold_map_cache_time) < SOLD_MAP_CACHE_TTL:
+        return _alabama_sold_map_cache
+
+    url = "https://salesorder.junaidworld.com/alabama/api/item-analysis-totals/"
+    try:
+        r = requests.get(url, timeout=3)
+        r.raise_for_status()
+        data = r.json() or {}
+        out = {}
+        for row in (data.get("results") or []):
+            code = str(row.get("item_code", "")).strip()
+            if not code:
+                continue
+            out[code] = {
+                "total": _to_float(row.get("total_qty", 0)),
+                "total_2025": _to_float(row.get("total_2025", 0)),
+                "total_2026": _to_float(row.get("total_2026", 0)),
+            }
+        _alabama_sold_map_cache = out
+        _alabama_sold_map_cache_time = current_time
+        return out
+    except Exception as e:
+        print(f"Alabama sold API error (using cache if available): {e}")
+        return _alabama_sold_map_cache if _alabama_sold_map_cache else {}
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -1807,6 +1846,26 @@ def stock_page(branch):
                                 )
                                 for row in results
                             ]
+
+                    # If ALABAMA page (logged in), append Sold Stock columns (indexes 8, 9, 10)
+                    if branch == "ALABAMA" and session.get("username") and results:
+                        try:
+                            al_sold_map = fetch_alabama_sold_map()
+                        except Exception as e:
+                            print(f"Alabama sold API error (non-blocking): {e}")
+                            al_sold_map = {}
+
+                        def _ag(code, key):
+                            return (al_sold_map.get(code, {}) or {}).get(key, 0.0)
+
+                        results = [
+                            tuple(row) + (
+                                _ag(str(row[0]).strip(), "total"),
+                                _ag(str(row[0]).strip(), "total_2025"),
+                                _ag(str(row[0]).strip(), "total_2026"),
+                            )
+                            for row in results
+                        ]
 
                     if bulk_codes and results:
                         bulk_code_order = {code: idx for idx, code in enumerate(bulk_codes)}
