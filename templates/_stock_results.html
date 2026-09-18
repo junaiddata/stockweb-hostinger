@@ -81,6 +81,7 @@
                         <p><strong>Stock:</strong> {{ item[5]|int }}</p>
                         {% if session.username %}
                         <p><strong>Sold Stock:</strong> {{ item[8]|default(0) }} <small style="opacity:.85;">(2025: {{ item[9]|default(0) }} | 2026: {{ item[10]|default(0) }})</small></p>
+                        <p><strong>Net Stock:</strong> {{ '%g'|format(((item[5]|float) - (item[8]|default(0)|float))|round(2)) }}</p>
                         {% endif %}
                         <p><strong>Min. Selling Price:</strong> {{ "%.2f"|format(item[7]) }} AED</p>
                         {% if session.username %}
@@ -100,6 +101,7 @@
                         <th>Manufacturer</th>
                         <th class="right">Stock</th>
                         {% if session.username %}<th class="right">Sold Stock</th>{% endif %}
+                        {% if session.username %}<th class="right">Net Stock</th>{% endif %}
                         <th class="right">Min. Selling Price</th>
                         {% if session.username %}<th class="right">Cost Price</th>{% endif %}
                     </tr>
@@ -120,6 +122,8 @@
                             <span style="margin-left:8px;">2026: {{ item[10]|default(0) }}</span>
                           </div>
                         </td>
+                        {% set net_stock = (item[5]|float) - (item[8]|default(0)|float) %}
+                        <td class="right">{{ '%g'|format(net_stock|round(2)) }}</td>
                         <!-- Inline Edit: Selling Price (ALABAMA) -->
                         <td class="right">
                           <!-- VIEW MODE -->
