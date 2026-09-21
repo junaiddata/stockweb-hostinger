@@ -4,7 +4,7 @@ import pandas as pd
 import os
 
 from flask_cors import CORS
-from flask import Flask, request, render_template, redirect, url_for, session, flash, Response
+from flask import Flask, request, render_template, redirect, url_for, session, flash, Response, send_file, abort
 
 # Load .env for API_BASE_URL, API_TIMEOUT (VPS sync via tunnel)
 try:
@@ -2227,7 +2227,12 @@ def item_detail(branch, item_code):
             "CostPrice": item[6] if "username" in session else None,
             "MinSellingPrice": item[7],
         }
-        return render_template("item_detail.html", item=item_data, branch=branch)
+        ds_path = alabama_datasheet_path(item_data["ItemCode"])
+        return render_template(
+            "item_detail.html", item=item_data, branch=branch,
+            datasheet_version=(int(os.path.getmtime(ds_path)) if os.path.isfile(ds_path) else None),
+            is_admin=is_admin(),
+        )
 
     # ==========================================
     # 4. HEAOFFICE / RASALKHORE (Standard)
@@ -2296,6 +2301,123 @@ CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percen
         return render_template("item_detail.html", item=item_data, branch=branch)
 
     return render_template("item_detail.html", item=None, branch=branch), 404
+
+# ==========================================
+# ALABAMA DATASHEETS (admin uploads a PDF; its first page is stored as a JPEG)
+# ==========================================
+ALABAMA_DATASHEET_DIR = os.path.join(_BASE_DIR, "uploads", "datasheets", "alabama")
+DATASHEET_MAX_BYTES = 20 * 1024 * 1024  # 20 MB upload limit
+DATASHEET_DPI = 150            # render resolution
+DATASHEET_MAX_WIDTH = 1600     # px cap so oversized pages stay small
+DATASHEET_JPEG_QUALITY = 80
+
+
+def is_admin():
+    return session.get("username") == "admin"
+
+
+def alabama_datasheet_path(item_code: str) -> str:
+    # Hex-encode the item code so any characters in it are safe as a filename
+    safe_name = (item_code or "").strip().encode("utf-8").hex()
+    return os.path.join(ALABAMA_DATASHEET_DIR, f"{safe_name}.jpg")
+
+
+def pdf_first_page_to_jpeg(pdf_bytes: bytes):
+    """Render the first page of a PDF to JPEG bytes. Returns (jpeg_bytes, page_count)."""
+    import pymupdf  # imported here so the rest of the app runs even if it's missing
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if doc.page_count < 1:
+            raise ValueError("PDF has no pages")
+        page = doc[0]
+        zoom = min(DATASHEET_DPI / 72, DATASHEET_MAX_WIDTH / page.rect.width)
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+        return pix.tobytes("jpeg", jpg_quality=DATASHEET_JPEG_QUALITY), doc.page_count
+
+
+@app.route("/item/ALABAMA/<item_code>/datasheet", methods=["GET"])
+def alabama_datasheet(item_code):
+    path = alabama_datasheet_path(item_code)
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="image/jpeg")
+
+
+@app.route("/item/ALABAMA/<item_code>/datasheet/download", methods=["GET"])
+def download_alabama_datasheet(item_code):
+    path = alabama_datasheet_path(item_code)
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="image/jpeg", as_attachment=True,
+                     download_name=f"{item_code.strip()}_datasheet.jpg")
+
+
+@app.route("/item/ALABAMA/<item_code>/datasheet", methods=["POST"])
+def upload_alabama_datasheet(item_code):
+    if not is_admin():
+        abort(403)
+    detail_url = url_for("item_detail", branch="ALABAMA", item_code=item_code)
+
+    if request.content_length and request.content_length > DATASHEET_MAX_BYTES:
+        flash("Datasheet is too large (max 20 MB).", "danger")
+        return redirect(detail_url)
+
+    file = request.files.get("datasheet")
+    if not file or not file.filename:
+        flash("Please choose a PDF file to upload.", "danger")
+        return redirect(detail_url)
+    if not file.filename.lower().endswith(".pdf"):
+        flash("Only PDF files are allowed.", "danger")
+        return redirect(detail_url)
+
+    data = file.read(DATASHEET_MAX_BYTES + 1)
+    if len(data) > DATASHEET_MAX_BYTES:
+        flash("Datasheet is too large (max 20 MB).", "danger")
+        return redirect(detail_url)
+    if not data.startswith(b"%PDF"):
+        flash("That file is not a valid PDF.", "danger")
+        return redirect(detail_url)
+
+    try:
+        jpeg_bytes, page_count = pdf_first_page_to_jpeg(data)
+    except ImportError:
+        flash("Server is missing PyMuPDF (pip install pymupdf).", "danger")
+        return redirect(detail_url)
+    except Exception:
+        flash("Could not read that PDF. Please check the file and try again.", "danger")
+        return redirect(detail_url)
+
+    os.makedirs(ALABAMA_DATASHEET_DIR, exist_ok=True)
+    path = alabama_datasheet_path(item_code)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "wb") as f:
+        f.write(jpeg_bytes)
+    try:
+        os.replace(tmp_path, path)
+    except OSError:
+        os.remove(tmp_path)
+        flash("Could not replace the datasheet (file in use). Please try again.", "danger")
+        return redirect(detail_url)
+
+    if page_count > 1:
+        flash(f"Datasheet uploaded. The PDF had {page_count} pages; only the first page was saved.", "success")
+    else:
+        flash("Datasheet uploaded.", "success")
+    return redirect(detail_url)
+
+
+@app.route("/item/ALABAMA/<item_code>/datasheet/delete", methods=["POST"])
+def delete_alabama_datasheet(item_code):
+    if not is_admin():
+        abort(403)
+    path = alabama_datasheet_path(item_code)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+            flash("Datasheet deleted.", "success")
+        except OSError:
+            flash("Could not delete the datasheet (file in use). Please try again.", "danger")
+    return redirect(url_for("item_detail", branch="ALABAMA", item_code=item_code))
+
 
 # (Optional) Route to update data manually - DISABLED (use API sync instead)
 # @app.route("/update_data/<branch>", methods=["GET"])

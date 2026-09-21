@@ -173,6 +173,50 @@
         }
         .back-link:hover { background: var(--primary-color); color: var(--white-color); }
 
+        .datasheet-box { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); }
+        .datasheet-box h3 { font-size: 1.1rem; margin-bottom: 0.75rem; color: #555; }
+        .ds-card {
+            display: flex; align-items: center; gap: 16px; padding: 12px;
+            border: 1px solid var(--border-color); border-radius: 10px; background: #f8f9fa;
+        }
+        .ds-thumb {
+            flex: 0 0 auto; width: 64px; height: 84px; overflow: hidden; border-radius: 6px;
+            border: 1px solid var(--border-color); background: #fff; box-shadow: 0 1px 4px var(--shadow-medium);
+        }
+        .ds-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+        .ds-card-body { display: flex; flex-direction: column; min-width: 0; }
+        .ds-card-body strong { font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ds-card-body small { color: var(--text-light); font-size: 0.8rem; }
+        .ds-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        a.ds-btn { display: inline-block; text-decoration: none; font-size: 0.9rem; }
+        .ds-card-actions .ds-btn.primary { padding: 7px 16px; }
+        .datasheet-empty { color: var(--text-light); }
+        .datasheet-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+        .ds-drop {
+            position: relative; flex: 1 1 260px; display: flex; align-items: center; gap: 12px;
+            padding: 12px 16px; border: 2px dashed #90caf9; border-radius: 10px;
+            background: #f5f9ff; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+        }
+        .ds-drop:hover, .ds-drop.dragover { border-color: var(--primary-color); background: #e3f2fd; }
+        .ds-drop.has-file { border-style: solid; border-color: var(--success-color); background: #e8f5e9; }
+        /* Native input stays in the DOM (keeps "required" validation) but is invisible */
+        .ds-drop input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .ds-drop-icon { font-size: 1.6rem; line-height: 1; }
+        .ds-drop-text { display: flex; flex-direction: column; min-width: 0; }
+        .ds-drop-text strong { font-size: 0.95rem; color: var(--primary-color); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ds-drop.has-file .ds-drop-text strong { color: var(--success-color); }
+        .ds-drop-text small { font-size: 0.8rem; color: var(--text-light); }
+        .ds-btn.primary { background: var(--primary-color); color: var(--white-color); padding: 10px 22px; }
+        .ds-btn.primary:hover { background: var(--secondary-color); border-color: var(--secondary-color); }
+        .ds-btn {
+            padding: 7px 16px; border-radius: 20px; border: 1px solid var(--primary-color);
+            background: transparent; color: var(--primary-color); font-family: inherit; font-weight: 500; cursor: pointer;
+        }
+        .ds-btn.danger { border-color: var(--error-color); color: var(--error-color); }
+        .flash { padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 0.9rem; }
+        .flash-success { background: #e8f5e9; color: var(--success-color); }
+        .flash-danger { background: #ffebee; color: var(--error-color); }
+
         .error-message { text-align: center; padding: 2rem; font-size: 1.2rem; color: var(--error-color); }
     </style>
 </head>
@@ -285,12 +329,63 @@
                         <dl>
                             <dt>Manufacturer:</dt>
                             <dd>{{ item.ManufacturerName }}</dd>
-                            {% if item.WarehouseCode and branch != 'ALABAMA' %}
+                            {% if item.WarehouseCode or branch == 'ALABAMA' %}
                             <dt>Warehouse:</dt>
-                            <dd>{{ item.WarehouseCode }}</dd>
+                            <dd>{{ item.WarehouseCode or '—' }}</dd>
                             {% endif %}
                         </dl>
                     </div>
+
+                    {% if branch == 'ALABAMA' %}
+                    <div class="datasheet-box">
+                        <h3>Datasheet</h3>
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% for category, message in messages %}
+                            <p class="flash flash-{{ category }}">{{ message }}</p>
+                            {% endfor %}
+                        {% endwith %}
+
+                        {% if datasheet_version %}
+                            {% set ds_url = url_for('alabama_datasheet', item_code=item.ItemCode, v=datasheet_version) %}
+                            <div class="ds-card">
+                                <a href="{{ ds_url }}" target="_blank" rel="noopener" class="ds-thumb" title="Open datasheet">
+                                    <img src="{{ ds_url }}" alt="Datasheet preview for {{ item.ItemCode }}" loading="lazy">
+                                </a>
+                                <div class="ds-card-body">
+                                    <strong>{{ item.ItemCode }}_datasheet.jpg</strong>
+                                    <small>Product datasheet</small>
+                                    <div class="ds-card-actions">
+                                        <a href="{{ ds_url }}" target="_blank" rel="noopener" class="ds-btn">👁 View</a>
+                                        <a href="{{ url_for('download_alabama_datasheet', item_code=item.ItemCode) }}" class="ds-btn primary">⬇ Download</a>
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <p class="datasheet-empty">No datasheet available.</p>
+                        {% endif %}
+
+                        {% if is_admin %}
+                        <form method="post" enctype="multipart/form-data"
+                              action="{{ url_for('upload_alabama_datasheet', item_code=item.ItemCode) }}" class="datasheet-form">
+                            <label class="ds-drop" id="dsDrop">
+                                <input type="file" name="datasheet" id="dsFile" accept="application/pdf,.pdf" required>
+                                <span class="ds-drop-icon">📄</span>
+                                <span class="ds-drop-text">
+                                    <strong id="dsFileName">Choose a PDF file</strong>
+                                    <small id="dsFileHint">Click to browse or drag &amp; drop here · Max 20 MB</small>
+                                </span>
+                            </label>
+                            <button type="submit" class="ds-btn primary">{% if datasheet_version %}Replace{% else %}Upload{% endif %} PDF</button>
+                        </form>
+                        {% if datasheet_version %}
+                        <form method="post" action="{{ url_for('delete_alabama_datasheet', item_code=item.ItemCode) }}"
+                              onsubmit="return confirm('Delete this datasheet?');" class="datasheet-form">
+                            <button type="submit" class="ds-btn danger">Delete Datasheet</button>
+                        </form>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 {% else %}
                     <p class="error-message">❌ Item not found.</p>
                 {% endif %}
@@ -301,5 +396,35 @@
         </div>
     </div>
 
+    {% if is_admin and item and branch == 'ALABAMA' %}
+    <script>
+      (function () {
+        var drop = document.getElementById('dsDrop');
+        var input = document.getElementById('dsFile');
+        var name = document.getElementById('dsFileName');
+        var hint = document.getElementById('dsFileHint');
+        if (!drop || !input) return;
+
+        input.addEventListener('change', function () {
+          var f = input.files && input.files[0];
+          if (f) {
+            name.textContent = f.name;
+            hint.textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB · Click to change';
+            drop.classList.add('has-file');
+          } else {
+            name.textContent = 'Choose a PDF file';
+            hint.textContent = 'Click to browse or drag & drop here · Max 20 MB';
+            drop.classList.remove('has-file');
+          }
+        });
+        ['dragenter', 'dragover'].forEach(function (e) {
+          drop.addEventListener(e, function () { drop.classList.add('dragover'); });
+        });
+        ['dragleave', 'drop'].forEach(function (e) {
+          drop.addEventListener(e, function () { drop.classList.remove('dragover'); });
+        });
+      })();
+    </script>
+    {% endif %}
 </body>
 </html>
