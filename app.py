@@ -1308,15 +1308,17 @@ def process_excel(filepath, keep_admin_prices=True):
                 "Average Price": "CostPrice",
                 "Cost Price": "CostPrice",
             }
+            # Accept header variants like "CTN QTY", "Ctn Qty", "CTN. QTY"
+            for col in df.columns:
+                if col.upper().replace(" ", "").replace(".", "") in ("CTNQTY", "CTNQUANTITY", "CARTONQTY"):
+                    column_mapping[col] = "CTN Qty"
+                    break
             df.rename(columns=column_mapping, inplace=True)
 
-            keep_cols = [
-                "ItemCode", "Upc Code", "Description", "Manufacturer Name",
-                "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
-            ]
+            keep_cols = ALABAMA_STOCK_COLUMNS
             for col in keep_cols:
                 if col not in df.columns:
-                    df[col] = 0 if col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice"] else ""
+                    df[col] = 0 if col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty"] else ""
             df = df[keep_cols]
 
             df["ItemCode"] = df["ItemCode"].fillna("").astype(str).str.strip()
@@ -1324,7 +1326,7 @@ def process_excel(filepath, keep_admin_prices=True):
             df["Description"] = df["Description"].fillna("").astype(str).str.strip()
             df["Manufacturer Name"] = df["Manufacturer Name"].fillna("").astype(str).str.strip()
             df["Warehouse Code"] = df["Warehouse Code"].fillna("").astype(str).str.strip()
-            for numeric_col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice"]:
+            for numeric_col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty"]:
                 df[numeric_col] = pd.to_numeric(
                     df[numeric_col].fillna(0).astype(str).str.replace(",", "", regex=False).str.strip(),
                     errors="coerce"
@@ -1483,7 +1485,7 @@ def ensure_stock_items_columns(cur, columns):
     cur.execute("PRAGMA table_info(stock_items)")
     existing = {row[1] for row in cur.fetchall()}
     real_columns = {
-        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty",
         "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS",
     }
     for col in columns:
@@ -1494,7 +1496,7 @@ def ensure_stock_items_columns(cur, columns):
 
 ALABAMA_STOCK_COLUMNS = [
     "ItemCode", "Upc Code", "Description", "Manufacturer Name",
-    "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice",
+    "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty",
 ]
 
 def ensure_alabama_stock_items_table(db_path: str):
@@ -1697,7 +1699,8 @@ def stock_page(branch):
                                           WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", 0)
                                           ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
                                                     THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
-                                                    ELSE 0 END END) * 1.03, 2) END AS "Selling Price"
+                                                    ELSE 0 END END) * 1.03, 2) END AS "Selling Price",
+                        COALESCE(si."CTN Qty", 0) AS "CTN Qty"
                     FROM stock_items si
                     LEFT JOIN dip.stock_items dip_si ON TRIM(dip_si."ItemCode") = TRIM(si."ItemCode")
                     LEFT JOIN dip.price_overrides dip_po ON TRIM(dip_po.ItemCode) = TRIM(dip_si."ItemCode")
@@ -1847,7 +1850,7 @@ def stock_page(branch):
                                 for row in results
                             ]
 
-                    # If ALABAMA page (logged in), append Sold Stock columns (indexes 8, 9, 10)
+                    # If ALABAMA page (logged in), append Sold Stock columns (indexes 9, 10, 11; 8 is CTN Qty)
                     if branch == "ALABAMA" and session.get("username") and results:
                         try:
                             al_sold_map = fetch_alabama_sold_map()
