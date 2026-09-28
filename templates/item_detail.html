@@ -329,6 +329,10 @@
                         <dl>
                             <dt>Manufacturer:</dt>
                             <dd>{{ item.ManufacturerName }}</dd>
+                            {% if item.Category %}
+                            <dt>Category:</dt>
+                            <dd>{{ item.Category }}</dd>
+                            {% endif %}
                             {% if item.WarehouseCode or branch == 'ALABAMA' %}
                             <dt>Warehouse:</dt>
                             <dd>{{ item.WarehouseCode or '—' }}</dd>

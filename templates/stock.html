@@ -280,6 +280,29 @@
 
         input[type="text"]:focus { border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
 
+        .category-filter { margin-top: 0.85rem; }
+
+        .category-filter select {
+            width: 100%;
+            padding: 12px 46px 12px 20px;
+            font-family: inherit;
+            font-size: 1rem;
+            color: var(--text-color, #222);
+            background-color: var(--card-background, #fff);
+            border: 1px solid var(--border-color);
+            border-radius: 25px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 20px center;
+        }
+
+        .category-filter select:focus { border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
+
         .bulk-item-codes-wrapper {
             margin-top: 0.85rem;
             display: none;
@@ -508,6 +531,16 @@
                         <label for="bulkItemCodes">Bulk item codes (new line, space, or comma separated)</label>
                         <textarea id="bulkItemCodes" name="bulk_item_codes" placeholder="List the item codes here">{{ bulk_item_codes or '' }}</textarea>
                     </div>
+                    {% if category_options %}
+                    <div class="category-filter">
+                        <select name="category" id="categoryFilter" aria-label="Category">
+                            <option value="">All categories</option>
+                            {% for c in category_options %}
+                            <option value="{{ c }}" {% if category == c %}selected{% endif %}>{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     <div class="controls">
                         <label class="toggle-switch">
                             <input type="checkbox" id="bulkSearchToggle">

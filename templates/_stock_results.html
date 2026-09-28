@@ -79,6 +79,8 @@
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
                         <p><strong>Manufacturer:</strong> {{ item[3] }}</p>
+                        {% set _cat = (category_map or {}).get(item[0]|string|trim, '') %}
+                        {% if _cat %}<p><strong>Category:</strong> {{ _cat }}</p>{% endif %}
                         <p><strong>Stock:</strong> {{ item[5]|int }}</p>
                         {% if session.username %}
                         <p><strong>Sold Stock:</strong> {{ item[9]|default(0) }} <small style="opacity:.85;">(2025: {{ item[10]|default(0) }} | 2026: {{ item[11]|default(0) }})</small></p>
@@ -100,6 +102,7 @@
                         <th>UPC</th>
                         <th>Description</th>
                         <th>Manufacturer</th>
+                        <th>Category</th>
                         <th class="right">Stock</th>
                         {% if session.username %}<th class="right">Sold Stock</th>{% endif %}
                         <th class="right">CTN Qty</th>
@@ -114,6 +117,7 @@
                         <td>{{ item[1] }}</td>
                         <td>{{ item[2] }}</td>
                         <td>{{ item[3] }}</td>
+                        <td>{{ (category_map or {}).get(item[0]|string|trim, '') }}</td>
                         <td class="right">{{ item[5]|int }}</td>
                         {% if session.username %}
                         <td class="right sold-cell" style="white-space:nowrap;">
@@ -187,6 +191,7 @@
                         <th>Item Code</th>
                         <th>UPC</th>
                         <th>Description</th>
+                        <th>Category</th>
                         <th class="right">AJMAN</th>
                         <th class="right">NAH</th>
                         <th class="right">DEIRA</th>
@@ -207,6 +212,7 @@
                         <td><a href="{{ url_for('item_detail', branch='ALLSTORES', item_code=item[0]) }}">{{ item[0] }}</a></td>
                         <td>{{ item[1] }}</td>
                         <td>{{ item[2] }}</td>
+                        <td>{{ (category_map or {}).get(item[0]|string|trim, '') }}</td>
                         <td class="right">{{ item[3]|int }}</td>
                         <td class="right">{{ item[4]|int }}</td>
                         <td class="right">{{ item[5]|int }}</td>
@@ -269,6 +275,8 @@
 
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+                        {% set _cat = (category_map or {}).get(item[0]|string|trim, '') %}
+                        {% if _cat %}<p><strong>Category:</strong> {{ _cat }}</p>{% endif %}
                         {% if _hide_min and not session.username %}
                             <p><strong>Min. Price:</strong> Check price</p>
                         {% else %}
@@ -297,6 +305,8 @@
                         <p><strong>Stock:</strong> {{ item[5] }}{# | <strong>Free:</strong> {{ item[6] }} #}</p>
                         <p><strong>Item Code:</strong> {{ item[0] }}</p>
                         <p><strong>UPC Code:</strong> {{ item[1] }}</p>
+                        {% set _cat = (category_map or {}).get(item[0]|string|trim, '') %}
+                        {% if _cat %}<p><strong>Category:</strong> {{ _cat }}</p>{% endif %}
                         <p><strong>Min. Price:</strong> {{ item[7] }} AED</p>
                         {% if session.username %}
                             <p><strong>Cost Price:</strong> {{ item[8] }} AED</p>
@@ -316,6 +326,7 @@
                   <th>UPC</th>
                   <th>Description</th>
                   <th>Manufacturer</th>
+                  <th>Category</th>
 
                   {% if branch == 'DIP' %}
                     <th class="right">DIP Stock</th>
@@ -347,6 +358,7 @@
                     <td>{{ item[1] }}</td>
                     <td>{{ item[2] }}</td>
                     <td>{{ item[3] }}</td>
+                    <td>{{ (category_map or {}).get(item[0]|string|trim, '') }}</td>
 
                     {% if branch == 'DIP' %}
                       <td class="right">{{ item[5] |int}}</td>

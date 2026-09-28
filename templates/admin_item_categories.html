@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Item Categories</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { color: #4fc3f7; margin-bottom: 6px; }
+        .sub { color: #9e9e9e; font-size: 13px; margin-bottom: 20px; }
+        a { color: #4fc3f7; }
+        .card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .alert-success { background: rgba(102,187,106,.2); border: 1px solid #66bb6a; color: #a5d6a7; }
+        .alert-danger { background: rgba(239,83,80,.2); border: 1px solid #ef5350; color: #ef9a9a; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.1); }
+        input, select { padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.3); color: #fff; font-size: 14px; }
+        button { padding: 9px 18px; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; background: #4fc3f7; color: #000; }
+        button.warn { background: #ffa726; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        h2 { font-size: 16px; margin-bottom: 12px; color: #4fc3f7; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a href="{{ url_for('home') }}">&larr; Home</a>
+    <h1>Item Categories</h1>
+    <p class="sub">Hepworth / Ultra / GF items are labelled Pipe or Fitting from the description. Categories are stored separately from stock, so the cron sync and Excel uploads never change them. Manual overrides are never touched by the auto rules.</p>
+
+    {% if message %}<div class="alert alert-{{ message_type }}">{{ message }}</div>{% endif %}
+
+    <div class="card">
+        <h2>Counts</h2>
+        <table>
+            <tr><th>Branch DB</th><th>Category</th><th>Auto</th><th>Manual</th></tr>
+            {% for b in branches %}
+                {% set rows = counts[b] %}
+                {% for cat in categories %}
+                    {% set ns = namespace(a=0, m=0) %}
+                    {% for r in rows %}{% if r[0] == cat %}{% if r[1] == 'manual' %}{% set ns.m = r[2] %}{% else %}{% set ns.a = r[2] %}{% endif %}{% endif %}{% endfor %}
+                    {% if ns.a or ns.m %}<tr><td>{{ b }}</td><td>{{ cat }}</td><td>{{ ns.a }}</td><td>{{ ns.m }}</td></tr>{% endif %}
+                {% endfor %}
+            {% endfor %}
+        </table>
+        <form method="post" style="margin-top:14px;">
+            <input type="hidden" name="action" value="run">
+            <button type="submit">Re-run auto categorize (all branches)</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Find an item</h2>
+        <form method="get" class="row">
+            <input type="text" name="q" value="{{ q }}" placeholder="Item code or description" style="flex:1; min-width:220px;">
+            <button type="submit">Search</button>
+        </form>
+        {% if q %}
+        <table style="margin-top:12px;">
+            <tr><th>Branch</th><th>Item Code</th><th>Description</th><th>Manufacturer</th><th>Category</th><th>Source</th></tr>
+            {% for r in lookup_rows %}
+            <tr><td>{{ r[0] }}</td><td>{{ r[1] }}</td><td>{{ r[2] }}</td><td>{{ r[3] }}</td><td>{{ r[4] or '-' }}</td><td>{{ r[5] or '' }}</td></tr>
+            {% else %}
+            <tr><td colspan="6">No matches.</td></tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Manual override</h2>
+        <form method="post" class="row">
+            <select name="branch">
+                {% for b in branches %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+            </select>
+            <input type="text" name="item_code" placeholder="Item code" required>
+            <select name="category">
+                {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </select>
+            <button type="submit" name="action" value="set">Set category</button>
+            <button type="submit" name="action" value="clear" class="warn">Remove override</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

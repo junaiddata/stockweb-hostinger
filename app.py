@@ -22,6 +22,7 @@ import json
 import time
 import re
 from contextlib import contextmanager
+import item_categories as item_cats
 
 
 DEVICE_DB = "devices.db"
@@ -1090,7 +1091,10 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
         
         conn.commit()
         conn.close()
-        
+
+        # Refresh Hepworth/Ultra/GF Pipe|Fitting categories (separate table, never raises)
+        item_cats.safe_auto_categorize(db_path)
+
         return True, items_updated, None
         
     except requests.exceptions.ConnectionError as e:
@@ -1591,6 +1595,9 @@ def update_database(branch, df, keep_admin_prices=True):
 
     ensure_override_table(db_path)
 
+    # Refresh Hepworth/Ultra/GF Pipe|Fitting categories (separate table, never raises)
+    item_cats.safe_auto_categorize(db_path)
+
     if not keep_admin_prices:
         with get_db_connection(db_path, timeout=10.0) as conn:
             conn.execute("DELETE FROM price_overrides")
@@ -1621,6 +1628,19 @@ def rasalkhor():
 def alabama():
     return stock_page("ALABAMA")
 
+def _category_map_for(branch, results):
+    """{ItemCode: Category} for the rows on a results page. Retail/ALLSTORES read the DIP DB."""
+    if not results:
+        return {}
+    db_path = DB_PATHS.get(branch) or DB_PATHS["DIP"]
+    return item_cats.get_category_map(db_path, [r[0] for r in results if r])
+
+
+def _item_category(branch, item_code):
+    db_path = DB_PATHS.get(branch) or DB_PATHS["DIP"]
+    return item_cats.get_category_map(db_path, [item_code]).get(str(item_code).strip(), "")
+
+
 def parse_bulk_item_codes(raw_codes: str, max_codes: int = 900):
     """Parse bulk item codes split by newline, space, comma, or semicolon."""
     if not raw_codes:
@@ -1645,9 +1665,13 @@ def stock_page(branch):
     hide_zero_stock = False
     show_only_zero_stock = False
     hide_zero_cost = False
+    category = ""
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
+        category = request.form.get("category", "").strip()
+        if category not in item_cats.CATEGORIES:
+            category = ""
         bulk_item_codes = request.form.get("bulk_item_codes", "")
         bulk_codes = parse_bulk_item_codes(bulk_item_codes)
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
@@ -1656,9 +1680,17 @@ def stock_page(branch):
             if show_only_zero_stock:
                 hide_zero_stock = False  # Mutually exclusive
 
-        if query or bulk_codes:
+        if category:
+            # item_categories lives in this branch DB; created + populated on first use
+            try:
+                item_cats.ensure_item_categories_table(DB_PATHS[branch])
+            except Exception as e:
+                print(f"[item_categories] unavailable, category filter ignored: {e}")
+                category = ""
+
+        if query or bulk_codes or category:
             db_path = DB_PATHS[branch]
-            
+
             # make sure overrides table exists for JOINs
             ensure_override_table(db_path)
             ensure_brand_margins_table(DB_PATHS["DIP"])
@@ -1800,6 +1832,12 @@ def stock_page(branch):
                                 )"""
                             )
                             params.extend([like, like, like, like])
+
+                    if category:
+                        conditions.append(
+                            f'TRIM({col_item}) IN (SELECT ItemCode FROM main.item_categories WHERE Category = ?)'
+                        )
+                        params.append(category)
 
                     sql_query += " AND ".join(conditions)
 
@@ -2012,6 +2050,9 @@ def stock_page(branch):
         show_only_zero_stock=show_only_zero_stock,
         hide_zero_cost=hide_zero_cost,
         bulk_item_codes=bulk_item_codes,
+        category=category,
+        category_options=item_cats.CATEGORIES,
+        category_map=_category_map_for(branch, results),
         branch=branch,
         dip_total_value=dip_total_value,
         ras_total_value=ras_total_value,
@@ -2125,6 +2166,7 @@ def item_detail(branch, item_code):
             "TotalStock": row[12],
             "MinSellingPrice": row[13],
             "CostPrice": row[14] if "username" in session else None,
+            "Category": _item_category(branch, row[0]),
         }
         return render_template("item_detail.html", item=item_data, branch=branch)
 
@@ -2169,8 +2211,9 @@ def item_detail(branch, item_code):
             "ItemCode": row[0], "UpcCode": row[1], "Description": row[2],
             "ManufacturerName": row[3], "WarehouseCode": row[4],
             "StockQuantity": row[5], "FreeStock": row[6],
-            "MinSellingPrice": row[7], 
+            "MinSellingPrice": row[7],
             "CostPrice": row[8] if "username" in session else None,
+            "Category": _item_category(branch, row[0]),
         }
         return render_template("item_detail.html", item=item_data, branch=branch)
 
@@ -2229,6 +2272,7 @@ def item_detail(branch, item_code):
             "StockQuantity": item[5], "FreeStock": None,
             "CostPrice": item[6] if "username" in session else None,
             "MinSellingPrice": item[7],
+            "Category": _item_category(branch, item[0]),
         }
         ds_path = alabama_datasheet_path(item_data["ItemCode"])
         return render_template(
@@ -2298,8 +2342,9 @@ CASE WHEN COALESCE(bm.use_admin_price, 1) = 0 AND (1 + COALESCE(bm.margin_percen
             "ItemCode": item[0], "UpcCode": item[1], "Description": item[2],
             "ManufacturerName": item[3], "WarehouseCode": item[4],
             "StockQuantity": item[5], "FreeStock": item[6],
-            "MinSellingPrice": item[7], 
+            "MinSellingPrice": item[7],
             "CostPrice": item[8] if "username" in session else None,
+            "Category": _item_category(branch, item[0]),
         }
         return render_template("item_detail.html", item=item_data, branch=branch)
 
@@ -2965,7 +3010,10 @@ def _process_sync_in_background(data):
                             ))
             
             ensure_stock_items_indexes(db_path)
-            
+
+            # Refresh Hepworth/Ultra/GF Pipe|Fitting categories (separate table, never raises)
+            item_cats.safe_auto_categorize(db_path)
+
             # WAL checkpoint: keep WAL file small after bulk writes
             try:
                 with get_db_connection(db_path, timeout=10.0) as ckpt_conn:
@@ -3171,16 +3219,28 @@ def retail_page(retail_branch):
     query = ""
     hide_zero_stock = False
     show_only_zero_stock = False
+    category = ""
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
+        category = request.form.get("category", "").strip()
+        if category not in item_cats.CATEGORIES:
+            category = ""
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
         if session.get("username"):
             show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
             if show_only_zero_stock:
                 hide_zero_stock = False  # Mutually exclusive
 
-        if query:
+        if category:
+            # retail branches read the DIP DB, so categories come from DIP's item_categories
+            try:
+                item_cats.ensure_item_categories_table(DB_PATHS["DIP"])
+            except Exception as e:
+                print(f"[item_categories] unavailable, category filter ignored: {e}")
+                category = ""
+
+        if query or category:
             db_path = DB_PATHS["DIP"]
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
@@ -3224,6 +3284,10 @@ def retail_page(retail_branch):
                 )""")
                 params.extend([like, like, like, like])
 
+            if category:
+                conds.append('TRIM(si."ItemCode") IN (SELECT ItemCode FROM main.item_categories WHERE Category = ?)')
+                params.append(category)
+
             sql += " AND ".join(conds)
 
             if show_only_zero_stock:
@@ -3253,6 +3317,9 @@ def retail_page(retail_branch):
         "show_only_zero_stock": show_only_zero_stock,
         "hide_zero_cost": False,
         "branch": retail_branch,
+        "category": category,
+        "category_options": item_cats.CATEGORIES,
+        "category_map": _category_map_for(retail_branch, results),
         "branch_total_value": branch_total_value,
         "matched_count": matched_count,
     }
@@ -3284,9 +3351,19 @@ def allstores():
     query = ""
     hide_zero_stock = False
     show_only_zero_stock = False
+    category = ""
 
     if request.method == "POST":
         query = (request.form.get("query") or "").strip().lower()
+        category = (request.form.get("category") or "").strip()
+        if category not in item_cats.CATEGORIES:
+            category = ""
+        if category:
+            try:
+                item_cats.ensure_item_categories_table(DB_PATHS["DIP"])
+            except Exception as e:
+                print(f"[item_categories] unavailable, category filter ignored: {e}")
+                category = ""
         hide_zero_stock = request.form.get("hideZeroStock") == "on"
         if session.get("username"):
             show_only_zero_stock = request.form.get("showOnlyZeroStock") == "on"
@@ -3310,6 +3387,11 @@ def allstores():
                 )
                 params.extend([wlike, wlike, wlike, wlike])
             where_sql = " AND ".join(parts)
+
+        if category:
+            # RAS is attached below, so name the DIP (main) table explicitly
+            where_sql += ' AND TRIM(si."ItemCode") IN (SELECT ItemCode FROM main.item_categories WHERE Category = ?)'
+            params.append(category)
 
         dip_db = DB_PATHS["DIP"]
         ras_db_path = os.path.abspath(DB_PATHS["RASALKHORE"])
@@ -3421,6 +3503,9 @@ def allstores():
         "show_only_zero_stock": show_only_zero_stock,
         "hide_zero_cost": False,
         "branch": "ALLSTORES",
+        "category": category,
+        "category_options": item_cats.CATEGORIES,
+        "category_map": _category_map_for("ALLSTORES", results),
         "branch_totals": branch_totals,
         "matched_count": matched_count,
         "dip_total_value": None,
@@ -4051,6 +4136,77 @@ def admin_hidden_brands():
                            total=len(HIDDEN_BRANDS),
                            in_stock_count=sum(1 for b in brands_list if b["in_stock"]),
                            unhidden_count=len(unhidden))
+
+
+@app.route("/admin/item-categories", methods=["GET", "POST"])
+def admin_item_categories():
+    """Admin page: re-run the Pipe/Fitting rules and manually override an item's category."""
+    if "username" not in session:
+        flash("Please login to manage item categories", "danger")
+        return redirect(url_for('login'))
+
+    message = None
+    message_type = None
+    branches = ["DIP", "RASALKHORE", "ALABAMA"]
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        try:
+            if action == "run":
+                parts = []
+                for b in branches:
+                    item_cats.ensure_item_categories_table(DB_PATHS[b])
+                    changed, removed = item_cats.auto_categorize(DB_PATHS[b])
+                    parts.append(f"{b}: {changed} updated, {removed} removed")
+                message, message_type = "Auto-categorize done. " + "; ".join(parts), "success"
+            elif action in ("set", "clear"):
+                b = request.form.get("branch", "")
+                code = request.form.get("item_code", "").strip()
+                cat = request.form.get("category", "").strip()
+                if b not in DB_PATHS or not code:
+                    message, message_type = "Choose a branch and enter an item code.", "danger"
+                elif action == "set" and cat not in item_cats.CATEGORIES:
+                    message, message_type = "Choose a valid category.", "danger"
+                else:
+                    item_cats.ensure_item_categories_table(DB_PATHS[b])
+                    item_cats.set_manual_category(DB_PATHS[b], code, cat if action == "set" else None)
+                    message = f"{code} ({b}): {'set to ' + cat if action == 'set' else 'manual override removed'}."
+                    message_type = "success"
+        except Exception as e:
+            message, message_type = f"Error: {e}", "danger"
+
+    counts = {}
+    for b in branches:
+        try:
+            item_cats.ensure_item_categories_table(DB_PATHS[b])
+            counts[b] = item_cats.get_category_counts(DB_PATHS[b])
+        except Exception:
+            counts[b] = []
+
+    lookup_rows = []
+    q = request.args.get("q", "").strip()
+    if q:
+        for b in branches:
+            try:
+                with get_db_connection(DB_PATHS[b], timeout=10.0) as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT si."ItemCode", si."Description", si."Manufacturer Name", ic.Category, ic.Source
+                        FROM stock_items si
+                        LEFT JOIN item_categories ic ON ic.ItemCode = TRIM(si."ItemCode")
+                        WHERE LOWER(si."ItemCode") LIKE ? OR LOWER(si."Description") LIKE ?
+                        LIMIT 50
+                    """, (f"%{q.lower()}%", f"%{q.lower()}%"))
+                    for r in cur.fetchall():
+                        lookup_rows.append((b,) + tuple(r))
+            except Exception:
+                pass
+
+    return render_template("admin_item_categories.html",
+                           message=message, message_type=message_type,
+                           counts=counts, branches=branches,
+                           categories=item_cats.CATEGORIES,
+                           q=q, lookup_rows=lookup_rows)
 
 
 # ============================================================================
