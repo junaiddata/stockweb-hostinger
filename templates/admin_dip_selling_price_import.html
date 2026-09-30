@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIP Selling Price Import</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 100%);
+            min-height: 100vh; color: #e0e0e0; padding: 20px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        .back-link { color: #4fc3f7; text-decoration: none; display: inline-block; margin-bottom: 16px; }
+        .back-link:hover { text-decoration: underline; }
+        h1 { font-size: 24px; color: #4fc3f7; margin-bottom: 6px; }
+        .subtitle { font-size: 13px; color: rgba(255,255,255,.6); margin-bottom: 22px; }
+        .card {
+            background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+            border-radius: 14px; padding: 22px; margin-bottom: 20px;
+        }
+        .card h2 { font-size: 16px; color: #4fc3f7; margin-bottom: 12px; }
+        .card ul { margin: 0 0 14px 20px; font-size: 13px; color: rgba(255,255,255,.75); line-height: 1.7; }
+        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 14px; }
+        .alert-success { background: rgba(102,187,106,.2); border: 1px solid #66bb6a; color: #a5d6a7; }
+        .alert-danger { background: rgba(239,83,80,.2); border: 1px solid #ef5350; color: #ef9a9a; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        input[type=file] {
+            flex: 1; min-width: 220px; padding: 10px; border-radius: 8px;
+            border: 1px dashed rgba(255,255,255,.3); background: rgba(0,0,0,.25); color: #fff; font-size: 14px;
+        }
+        button {
+            padding: 10px 20px; border: 0; border-radius: 8px; cursor: pointer;
+            font-weight: 600; font-family: inherit; font-size: 14px;
+        }
+        .btn-preview { background: #4fc3f7; color: #00202e; }
+        .btn-apply { background: #66bb6a; color: #06210a; }
+        .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+        .stat { flex: 1; min-width: 130px; background: rgba(0,0,0,.3); border-radius: 10px; padding: 12px; text-align: center; }
+        .stat .num { font-size: 24px; font-weight: 700; color: #4fc3f7; }
+        .stat .lbl { font-size: 11px; color: #9e9e9e; margin-top: 2px; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.1); }
+        .codes { font-size: 12px; color: rgba(255,255,255,.6); word-break: break-word; margin-top: 6px; }
+        details { margin-top: 10px; }
+        summary { cursor: pointer; color: #ffa726; font-size: 13px; }
+        .note { font-size: 12px; color: rgba(255,255,255,.5); margin-top: 10px; }
+        @media (max-width: 600px) { body { padding: 12px; } .card { padding: 16px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a href="{{ url_for('home') }}" class="back-link">&larr; Home</a>
+    <h1>DIP Selling Price Import</h1>
+    <p class="subtitle">Set the Min. Selling Price of items already in DIP from an Excel file.</p>
+
+    {% if message %}<div class="alert alert-{{ message_type }}">{{ message }}</div>{% endif %}
+
+    <div class="card">
+        <h2>Upload file</h2>
+        <ul>
+            <li>Needs the columns <strong>Item No.</strong> and <strong>SELLING PRICE</strong> (any letter case; the header row can be row 1 or 2).</li>
+            <li>Only items that already exist in DIP are updated. Others are skipped and listed.</li>
+            <li>Stock, cost, description and manufacturer are <strong>not</strong> changed.</li>
+            <li>Prices are saved like the Min. Selling Price edit button, so admins can still edit them later and the stock sync will not remove them.</li>
+        </ul>
+        <form method="POST" enctype="multipart/form-data" id="importForm">
+            <div class="row">
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <button type="submit" name="action" value="preview" class="btn-preview">Preview</button>
+                <button type="submit" name="action" value="apply" class="btn-apply"
+                        onclick="return confirm('Save these selling prices for the items found in DIP? Existing prices for those items will be replaced.')">Apply</button>
+            </div>
+        </form>
+        <p class="note">Tip: use Preview first to check the counts, then choose the file again and press Apply.</p>
+    </div>
+
+    {% if result %}
+    <div class="card">
+        <h2>{{ 'Result' if result.applied else 'Preview (nothing saved yet)' }}</h2>
+        <div class="stats">
+            <div class="stat"><div class="num">{{ result.rows }}</div><div class="lbl">Rows in file</div></div>
+            <div class="stat"><div class="num">{{ result.updated }}</div><div class="lbl">{{ 'Updated' if result.applied else 'Will be updated' }}</div></div>
+            <div class="stat"><div class="num">{{ result.unchanged }}</div><div class="lbl">Already same price</div></div>
+            <div class="stat"><div class="num">{{ result.not_in_dip|length }}</div><div class="lbl">Not in DIP (skipped)</div></div>
+            <div class="stat"><div class="num">{{ result.no_price|length }}</div><div class="lbl">No valid price (skipped)</div></div>
+        </div>
+
+        {% if result.sample %}
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Item Code</th><th>New Min. Selling Price</th></tr></thead>
+                <tbody>
+                {% for code, price in result.sample %}
+                    <tr><td>{{ code }}</td><td>{{ "%.2f"|format(price) }} AED</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if result.updated > result.sample|length %}
+        <p class="note">Showing the first {{ result.sample|length }} of {{ result.updated }}.</p>
+        {% endif %}
+        {% endif %}
+
+        {% if result.not_in_dip %}
+        <details>
+            <summary>{{ result.not_in_dip|length }} item(s) not found in DIP</summary>
+            <div class="codes">{{ result.not_in_dip|join(', ') }}</div>
+        </details>
+        {% endif %}
+        {% if result.no_price %}
+        <details>
+            <summary>{{ result.no_price|length }} item(s) with a blank or 0 price</summary>
+            <div class="codes">{{ result.no_price|join(', ') }}</div>
+        </details>
+        {% endif %}
+        {% if result.duplicates %}
+        <p class="note">{{ result.duplicates }} duplicate row(s) in the file were ignored (the first one is used).</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>

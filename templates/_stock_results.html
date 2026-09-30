@@ -83,9 +83,11 @@
                         {% if _cat %}<p><strong>Category:</strong> {{ _cat }}</p>{% endif %}
                         <p><strong>Stock:</strong> {{ item[5]|int }}</p>
                         {% if session.username %}
-                        <p><strong>Sold Stock:</strong> {{ item[9]|default(0) }} <small style="opacity:.85;">(2025: {{ item[10]|default(0) }} | 2026: {{ item[11]|default(0) }})</small></p>
+                        <p><strong>Sold Stock:</strong> {{ item[11]|default(0) }} <small style="opacity:.85;">(2025: {{ item[12]|default(0) }} | 2026: {{ item[13]|default(0) }})</small></p>
                         {% endif %}
                         <p><strong>CTN Qty:</strong> {% if item[8] %}{{ item[8]|int if item[8] == item[8]|int else item[8] }}{% else %}—{% endif %}</p>
+                        <p><strong>Last Received Qty:</strong> {% if item[9] %}{{ item[9]|int if item[9] == item[9]|int else item[9] }}{% else %}—{% endif %}</p>
+                        <p><strong>Last Received Date:</strong> {{ item[10] or '—' }}</p>
                         <p><strong>Min. Selling Price:</strong> {{ "%.2f"|format(item[7]) }} AED</p>
                         {% if session.username %}
                         <p><strong>Cost Price:</strong> {{ "%.2f"|format(item[6]) }} AED</p>
@@ -95,6 +97,7 @@
                 {% endfor %}
             </div>
 
+            <div class="table-scroll">
             <table class="results-table">
                 <thead>
                     <tr>
@@ -106,6 +109,8 @@
                         <th class="right">Stock</th>
                         {% if session.username %}<th class="right">Sold Stock</th>{% endif %}
                         <th class="right">CTN Qty</th>
+                        <th class="right">Last Received Qty</th>
+                        <th>Last Received Date</th>
                         <th class="right">Min. Selling Price</th>
                         {% if session.username %}<th class="right">Cost Price</th>{% endif %}
                     </tr>
@@ -121,14 +126,16 @@
                         <td class="right">{{ item[5]|int }}</td>
                         {% if session.username %}
                         <td class="right sold-cell" style="white-space:nowrap;">
-                          {{ item[9]|default(0) }}
+                          {{ item[11]|default(0) }}
                           <div class="sold-sub" style="font-size:11px; opacity:.85; margin-top:2px; line-height:1.2;">
-                            <span>2025: {{ item[10]|default(0) }}</span>
-                            <span style="margin-left:8px;">2026: {{ item[11]|default(0) }}</span>
+                            <span>2025: {{ item[12]|default(0) }}</span>
+                            <span style="margin-left:8px;">2026: {{ item[13]|default(0) }}</span>
                           </div>
                         </td>
                         {% endif %}
                         <td class="right">{% if item[8] %}{{ item[8]|int if item[8] == item[8]|int else item[8] }}{% else %}—{% endif %}</td>
+                        <td class="right">{% if item[9] %}{{ item[9]|int if item[9] == item[9]|int else item[9] }}{% else %}—{% endif %}</td>
+                        <td style="white-space:nowrap;">{{ item[10] or '—' }}</td>
                         {% if session.username %}
                         <!-- Inline Edit: Selling Price (ALABAMA) -->
                         <td class="right">
@@ -181,9 +188,11 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
 
     {# ================= ALL STORES (UPDATED WITH RAS) ================= #}
         {% elif branch == 'ALLSTORES' %}
+            <div class="table-scroll">
             <table class="results-table">
                 <thead>
                     <tr>
@@ -247,6 +256,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
 
         {# ================= DIP + RAS + RETAIL (default) ================= #}
         {% else %}
@@ -318,6 +328,7 @@
             {% endif %}
 
             {# Desktop table for DIP/RAS/retail single-branch #}
+            <div class="table-scroll">
             <table class="results-table">
               <thead class="table-light">
                 <tr>
@@ -441,6 +452,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
         {% endif %}
     {% endif %}
 </section>

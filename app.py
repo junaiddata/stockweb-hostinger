@@ -1317,12 +1317,21 @@ def process_excel(filepath, keep_admin_prices=True):
                 if col.upper().replace(" ", "").replace(".", "") in ("CTNQTY", "CTNQUANTITY", "CARTONQTY"):
                     column_mapping[col] = "CTN Qty"
                     break
+            # Accept header variants like "Last Received Qty", "LAST RECEIVED DATE", "Last Recieve Qty"
+            for col in df.columns:
+                key = col.upper().replace(" ", "").replace(".", "").replace("_", "")
+                if key == "SELLINGPRICE":
+                    column_mapping[col] = "Selling Price"
+                elif key in ("LASTRECEIVEDQTY", "LASTRECEIVEQTY", "LASTRECIEVEQTY", "LASTRECIEVEDQTY", "LASTRECEIVEDQUANTITY"):
+                    column_mapping[col] = "Last Received Qty"
+                elif key in ("LASTRECEIVEDDATE", "LASTRECEIVEDATE", "LASTRECIEVEDATE", "LASTRECIEVEDDATE"):
+                    column_mapping[col] = "Last Received Date"
             df.rename(columns=column_mapping, inplace=True)
 
             keep_cols = ALABAMA_STOCK_COLUMNS
             for col in keep_cols:
                 if col not in df.columns:
-                    df[col] = 0 if col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty"] else ""
+                    df[col] = 0 if col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty", "Last Received Qty"] else ""
             df = df[keep_cols]
 
             df["ItemCode"] = df["ItemCode"].fillna("").astype(str).str.strip()
@@ -1330,11 +1339,14 @@ def process_excel(filepath, keep_admin_prices=True):
             df["Description"] = df["Description"].fillna("").astype(str).str.strip()
             df["Manufacturer Name"] = df["Manufacturer Name"].fillna("").astype(str).str.strip()
             df["Warehouse Code"] = df["Warehouse Code"].fillna("").astype(str).str.strip()
-            for numeric_col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty"]:
+            for numeric_col in ["Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty", "Last Received Qty"]:
                 df[numeric_col] = pd.to_numeric(
                     df[numeric_col].fillna(0).astype(str).str.replace(",", "", regex=False).str.strip(),
                     errors="coerce"
                 ).fillna(0)
+            # Normalise the date to YYYY-MM-DD text (blank when missing/unparseable)
+            _dates = pd.to_datetime(df["Last Received Date"], errors="coerce", dayfirst=True)
+            df["Last Received Date"] = _dates.dt.strftime("%Y-%m-%d").fillna("")
 
         else:
             # DIP & RASALKHORE share the same base headings
@@ -1489,7 +1501,7 @@ def ensure_stock_items_columns(cur, columns):
     cur.execute("PRAGMA table_info(stock_items)")
     existing = {row[1] for row in cur.fetchall()}
     real_columns = {
-        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty",
+        "Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty", "Last Received Qty",
         "AJMAN", "NAH", "DEIRA", "DEIRA2", "ABUDHABI", "QUSAIS",
     }
     for col in columns:
@@ -1501,6 +1513,7 @@ def ensure_stock_items_columns(cur, columns):
 ALABAMA_STOCK_COLUMNS = [
     "ItemCode", "Upc Code", "Description", "Manufacturer Name",
     "Warehouse Code", "Stock Quantity", "Free Stock", "Selling Price", "CostPrice", "CTN Qty",
+    "Last Received Qty", "Last Received Date",
 ]
 
 def ensure_alabama_stock_items_table(db_path: str):
@@ -1724,6 +1737,7 @@ def stock_page(branch):
                         COALESCE(si."Stock Quantity", 0) AS "Stock Quantity",
                         ROUND(COALESCE(po.CostPriceOverride, si."CostPrice", 0), 2) AS "CostPrice",
                         CASE WHEN po.SellingPriceOverride IS NOT NULL THEN ROUND(po.SellingPriceOverride, 2)
+                             WHEN COALESCE(si."Selling Price", 0) > 0 THEN ROUND(si."Selling Price", 2)
                              ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
                                                AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
                                                AND CAST(COALESCE(dip_si."CostPrice", 0) AS REAL) > 0
@@ -1732,7 +1746,9 @@ def stock_page(branch):
                                           ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
                                                     THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
                                                     ELSE 0 END END) * 1.03, 2) END AS "Selling Price",
-                        COALESCE(si."CTN Qty", 0) AS "CTN Qty"
+                        COALESCE(si."CTN Qty", 0) AS "CTN Qty",
+                        COALESCE(si."Last Received Qty", 0) AS "Last Received Qty",
+                        COALESCE(si."Last Received Date", '') AS "Last Received Date"
                     FROM stock_items si
                     LEFT JOIN dip.stock_items dip_si ON TRIM(dip_si."ItemCode") = TRIM(si."ItemCode")
                     LEFT JOIN dip.price_overrides dip_po ON TRIM(dip_po.ItemCode) = TRIM(dip_si."ItemCode")
@@ -1888,7 +1904,7 @@ def stock_page(branch):
                                 for row in results
                             ]
 
-                    # If ALABAMA page (logged in), append Sold Stock columns (indexes 9, 10, 11; 8 is CTN Qty)
+                    # If ALABAMA page (logged in), append Sold Stock columns (indexes 11, 12, 13; 8 CTN Qty, 9 Last Received Qty, 10 Last Received Date)
                     if branch == "ALABAMA" and session.get("username") and results:
                         try:
                             al_sold_map = fetch_alabama_sold_map()
@@ -2241,6 +2257,7 @@ def item_detail(branch, item_code):
                 COALESCE(si."Stock Quantity", 0) AS "Stock Quantity",
                 ROUND(COALESCE(po.CostPriceOverride, si."CostPrice", 0), 2) AS "CostPrice",
                 CASE WHEN po.SellingPriceOverride IS NOT NULL THEN ROUND(po.SellingPriceOverride, 2)
+                     WHEN COALESCE(si."Selling Price", 0) > 0 THEN ROUND(si."Selling Price", 2)
                      ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
                                        AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
                                        AND CAST(COALESCE(dip_si."CostPrice", 0) AS REAL) > 0
@@ -4821,6 +4838,134 @@ def admin_cost_price_overrides():
                          search_query=search_query,
                          message=message,
                          message_type=message_type)
+
+
+def _norm_header(value) -> str:
+    """'Item No.' -> 'itemno', 'SELLING PRICE' -> 'sellingprice'."""
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def parse_dip_price_sheet(file_obj):
+    """Read (item_code, price) pairs from an Excel sheet.
+
+    The header row is found automatically (it may not be row 1) and header names are matched
+    case-insensitively. Returns (rows, error): rows is a list of (item_code, price_or_None).
+    """
+    item_keys = {"itemno", "itemcode", "item"}
+    price_keys = {"sellingprice", "minsellingprice", "minimumsellingprice", "minprice"}
+    raw = pd.read_excel(file_obj, header=None, dtype=str)
+    header_idx = item_col = price_col = None
+    for idx in range(min(15, len(raw))):
+        names = [_norm_header(v) for v in raw.iloc[idx].tolist()]
+        i = next((n for n, h in enumerate(names) if h in item_keys), None)
+        p = next((n for n, h in enumerate(names) if h in price_keys), None)
+        if i is not None and p is not None:
+            header_idx, item_col, price_col = idx, i, p
+            break
+    if header_idx is None:
+        return None, "Could not find the columns 'Item No.' and 'SELLING PRICE' in the first rows of the file."
+
+    rows = []
+    for _, r in raw.iloc[header_idx + 1:].iterrows():
+        code = str(r.iloc[item_col]).strip() if pd.notna(r.iloc[item_col]) else ""
+        if code.endswith(".0") and code[:-2].isdigit():
+            code = code[:-2]
+        if not code or code.lower() == "nan":
+            continue
+        try:
+            price = round(float(str(r.iloc[price_col]).replace(",", "").strip()), 2)
+        except (ValueError, TypeError):
+            price = None
+        rows.append((code, price))
+    return rows, None
+
+
+@app.route("/admin/dip-selling-price-import", methods=["GET", "POST"])
+def admin_dip_selling_price_import():
+    """Set DIP min selling prices from an Excel file, for items that already exist in DIP.
+
+    Prices are saved as admin overrides (price_overrides.SellingPriceOverride), exactly like the
+    inline edit button, so admins can still change them later and the stock sync never removes them.
+    Stock, cost, description and manufacturer are never touched.
+    """
+    if "username" not in session:
+        return redirect(url_for("login"))
+
+    result = None
+    message = None
+    message_type = None
+
+    if request.method == "POST":
+        action = request.form.get("action", "preview")
+        file = request.files.get("file")
+        if not file or file.filename == "":
+            message, message_type = "Please choose an Excel file.", "danger"
+        elif not file.filename.lower().endswith((".xlsx", ".xls")):
+            message, message_type = "Please upload an Excel file (.xlsx or .xls).", "danger"
+        else:
+            try:
+                rows, err = parse_dip_price_sheet(file)
+            except Exception as e:
+                rows, err = None, f"Error reading Excel: {e}"
+            if err:
+                message, message_type = err, "danger"
+            else:
+                db_path = DB_PATHS["DIP"]
+                ensure_override_table(db_path)
+                editor = session.get("username", "admin")
+                updated, unchanged, not_in_dip, no_price, duplicates = [], [], [], [], 0
+                seen = set()
+                try:
+                    with get_db_connection(db_path, timeout=30.0) as conn:
+                        cur = conn.cursor()
+                        cur.execute('SELECT TRIM("ItemCode"), "ItemCode" FROM stock_items')
+                        dip_codes = {trimmed: actual for trimmed, actual in cur.fetchall()}
+                        cur.execute("SELECT ItemCode, SellingPriceOverride FROM price_overrides")
+                        current = {str(c).strip(): o for c, o in cur.fetchall()}
+
+                        for code, price in rows:
+                            if code in seen:
+                                duplicates += 1
+                                continue
+                            seen.add(code)
+                            if code not in dip_codes:
+                                not_in_dip.append(code)
+                                continue
+                            if price is None or price <= 0:
+                                no_price.append(code)
+                                continue
+                            if current.get(code) is not None and abs(float(current[code]) - price) < 0.005:
+                                unchanged.append(code)
+                                continue
+                            updated.append((code, price))
+                            if action == "apply":
+                                cur.execute("""
+                                    INSERT INTO price_overrides (ItemCode, SellingPriceOverride, edited_by)
+                                    VALUES (?, ?, ?)
+                                    ON CONFLICT(ItemCode) DO UPDATE SET
+                                        SellingPriceOverride = excluded.SellingPriceOverride,
+                                        edited_by = excluded.edited_by,
+                                        edited_at = datetime('now')
+                                """, (dip_codes[code], price, editor))
+                    result = {
+                        "applied": action == "apply",
+                        "rows": len(rows),
+                        "updated": len(updated),
+                        "unchanged": len(unchanged),
+                        "not_in_dip": not_in_dip,
+                        "no_price": no_price,
+                        "duplicates": duplicates,
+                        "sample": updated[:15],
+                    }
+                    if action == "apply":
+                        message = f"Updated the min selling price of {len(updated)} DIP items."
+                        message_type = "success"
+                except sqlite3.Error as e:
+                    result = None
+                    message, message_type = f"Database error: {e}", "danger"
+
+    return render_template("admin_dip_selling_price_import.html",
+                           result=result, message=message, message_type=message_type)
 
 
 # ============================================================================

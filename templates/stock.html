@@ -444,6 +444,17 @@
             button[type="submit"] { width: auto; }
         }
 
+        /* Result tables have many columns: use the full screen width so the table fits without scrolling */
+        .app-container.app-wide { max-width: min(1600px, 98vw); }
+        .app-wide .results-table th, .app-wide .results-table td { padding: 0.75rem 0.6rem; }
+        .app-wide .results-table td { overflow-wrap: anywhere; }
+
+        /* Wide result tables scroll sideways instead of being clipped (tablet / narrow desktop) */
+        .table-scroll { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--border-radius); }
+        @media (min-width: 768px) and (max-width: 1100px) {
+            .results-table th, .results-table td { padding: 0.6rem 0.5rem; font-size: 0.85rem; }
+        }
+
         .mini-btn {
             padding: 4px 8px; border: 1px solid var(--border-color, #ddd);
             background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;
@@ -504,7 +515,7 @@
 
     <!-- Main Content -->
     <div class="main-wrapper">
-        <div class="app-container">
+        <div class="app-container app-wide">
             <!-- Page Header -->
             <div class="page-header">
                 <div class="page-header-content">

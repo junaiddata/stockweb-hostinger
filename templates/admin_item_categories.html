@@ -22,6 +22,13 @@
         button.warn { background: #ffa726; }
         .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
         h2 { font-size: 16px; margin-bottom: 12px; color: #4fc3f7; }
+
+        /* Small screens: let tables scroll sideways, stack form rows */
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .row input, .row select, .row button { max-width: 100%; }
+        }
     </style>
 </head>
 <body>
