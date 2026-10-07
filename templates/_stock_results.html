@@ -118,8 +118,8 @@
                 <tbody>
                     {% for item in results %}
                     <tr class="{% if item[5]|float <= 0 %}zero-stock{% endif %}">
-                        <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
-                        <td>{{ item[1] }}</td>
+                        <td class="nowrap-col"><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
+                        <td class="nowrap-col">{{ item[1] }}</td>
                         <td>{{ item[2] }}</td>
                         <td>{{ item[3] }}</td>
                         <td>{{ (category_map or {}).get(item[0]|string|trim, '') }}</td>
@@ -197,8 +197,8 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Item Code</th>
-                        <th>UPC</th>
+                        <th class="nowrap-col">Item Code</th>
+                        <th class="nowrap-col">UPC</th>
                         <th>Description</th>
                         <th>Category</th>
                         <th class="right">AJMAN</th>
@@ -218,8 +218,8 @@
                     {% for item in results %}
                     <tr class="{% if item[10] <= 0 and item[9] <= 0 %}zero-stock{% endif %}">
                         <td>{{ loop.index }}</td>
-                        <td><a href="{{ url_for('item_detail', branch='ALLSTORES', item_code=item[0]) }}">{{ item[0] }}</a></td>
-                        <td>{{ item[1] }}</td>
+                        <td class="nowrap-col"><a href="{{ url_for('item_detail', branch='ALLSTORES', item_code=item[0]) }}">{{ item[0] }}</a></td>
+                        <td class="nowrap-col">{{ item[1] }}</td>
                         <td>{{ item[2] }}</td>
                         <td>{{ (category_map or {}).get(item[0]|string|trim, '') }}</td>
                         <td class="right">{{ item[3]|int }}</td>
@@ -333,8 +333,8 @@
               <thead class="table-light">
                 <tr>
                   <th style="width:40px;">#</th>
-                  <th>Item Code</th>
-                  <th>UPC</th>
+                  <th class="nowrap-col">Item Code</th>
+                  <th class="nowrap-col">UPC</th>
                   <th>Description</th>
                   <th>Manufacturer</th>
                   <th>Category</th>
@@ -365,8 +365,8 @@
                     <td>{{ loop.index }}</td>
 
                     <!-- Common columns -->
-                    <td><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
-                    <td>{{ item[1] }}</td>
+                    <td class="nowrap-col"><a href="{{ url_for('item_detail', branch=branch, item_code=item[0]) }}">{{ item[0] }}</a></td>
+                    <td class="nowrap-col">{{ item[1] }}</td>
                     <td>{{ item[2] }}</td>
                     <td>{{ item[3] }}</td>
                     <td>{{ (category_map or {}).get(item[0]|string|trim, '') }}</td>

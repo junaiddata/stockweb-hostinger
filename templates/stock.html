@@ -448,6 +448,8 @@
         .app-container.app-wide { max-width: min(1600px, 98vw); }
         .app-wide .results-table th, .app-wide .results-table td { padding: 0.75rem 0.6rem; }
         .app-wide .results-table td { overflow-wrap: anywhere; }
+        /* Item Code and UPC stay on one line (table scrolls sideways if the screen is too narrow) */
+        .app-wide .results-table .nowrap-col { white-space: nowrap; overflow-wrap: normal; }
 
         /* Wide result tables scroll sideways instead of being clipped (tablet / narrow desktop) */
         .table-scroll { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--border-radius); }
