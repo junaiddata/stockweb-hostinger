@@ -1834,7 +1834,10 @@ def stock_page(branch):
                     params = []
                     if bulk_codes:
                         placeholders = ",".join(["?"] * len(bulk_codes))
-                        conditions.append(f"LOWER(TRIM({col_item})) IN ({placeholders})")
+                        conditions.append(
+                            f"(LOWER(TRIM({col_item})) IN ({placeholders}) OR LOWER(TRIM({col_upc})) IN ({placeholders}))"
+                        )
+                        params.extend(bulk_codes)
                         params.extend(bulk_codes)
                     else:
                         for w in query_words:
@@ -1928,7 +1931,13 @@ def stock_page(branch):
                         bulk_code_order = {code: idx for idx, code in enumerate(bulk_codes)}
                         results = sorted(
                             results,
-                            key=lambda row: bulk_code_order.get(str((row[0] if row else "")).strip().lower(), len(bulk_codes))
+                            key=lambda row: bulk_code_order.get(
+                                str((row[0] if row else "")).strip().lower(),
+                                bulk_code_order.get(
+                                    str((row[1] if row and len(row) > 1 else "") or "").strip().lower(),
+                                    len(bulk_codes),
+                                ),
+                            )
                         )
 
                     # Detach attached DB (only if we attached it)
