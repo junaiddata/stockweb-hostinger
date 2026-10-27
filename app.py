@@ -4698,6 +4698,402 @@ def admin_price_edit_history():
     )
 
 
+DIP_ITEMS_HEADERS = ["Item Code", "UPC Code", "Description", "Brand",
+                     "DIP Head Office Stock", "Selling Price", "Cost Price"]
+
+
+def _dip_items_query(q: str, hide_zero: bool, limit=None, offset=0):
+    """Return (total_count, rows) of Ras Al Khor stock_items filtered by search words / zero stock."""
+    where, params = ["1=1"], []
+    for w in [w for w in (q or "").lower().split() if w]:
+        like = f"%{w}%"
+        where.append("""(LOWER("ItemCode") LIKE ? OR LOWER("Upc Code") LIKE ?
+                         OR LOWER("Description") LIKE ? OR LOWER("Manufacturer Name") LIKE ?)""")
+        params.extend([like] * 4)
+    if hide_zero:
+        where.append('COALESCE("Stock Quantity", 0) > 0')
+    where_sql = " AND ".join(where)
+
+    with get_db_connection(DB_PATHS["DIP"], timeout=15.0) as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(*) FROM stock_items WHERE {where_sql}", params)
+        total = cur.fetchone()[0]
+        sql = f"""
+            SELECT "ItemCode" AS "Item Code", "Upc Code" AS "UPC Code", "Description",
+                   "Manufacturer Name" AS "Brand", "Stock Quantity" AS "DIP Head Office Stock",
+                   "Selling Price", "CostPrice" AS "Cost Price"
+            FROM stock_items
+            WHERE {where_sql}
+            ORDER BY "Manufacturer Name", "ItemCode"
+        """
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            cur.execute(sql, params + [limit, offset])
+        else:
+            cur.execute(sql, params)
+        return total, cur.fetchall()
+
+
+def _dip_items_args():
+    q = (request.args.get("q") or "").strip()
+    hide_zero = request.args.get("hide_zero") == "1"
+    return q, hide_zero
+
+
+@app.route("/admin/dip-items", methods=["GET"])
+def admin_dip_items():
+    """Admin-only read-only list of every item in the DIP (Head Office) stock table."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+    if not is_admin():
+        return "Access denied", 403
+
+    q, hide_zero = _dip_items_args()
+    try:
+        per_page = int(request.args.get("per_page", 100))
+    except ValueError:
+        per_page = 100
+    if per_page not in (50, 100, 200, 500):
+        per_page = 100
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError:
+        page = 1
+
+    total, _ = _dip_items_query(q, hide_zero, limit=0)
+    pages = max(1, -(-total // per_page))
+    page = min(page, pages)
+    _, rows = _dip_items_query(q, hide_zero, limit=per_page, offset=(page - 1) * per_page)
+
+    return render_template(
+        "admin_dip_items.html", rows=rows, total=total, q=q, hide_zero=hide_zero,
+        page=page, pages=pages, per_page=per_page,
+        first_row=(page - 1) * per_page + 1 if total else 0,
+        last_row=min(page * per_page, total),
+    )
+
+
+@app.route("/admin/dip-items/export.xlsx", methods=["GET"])
+def admin_dip_items_export_xlsx():
+    """Excel export of all DIP items matching the current search / zero-stock filter."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+    if not is_admin():
+        return "Access denied", 403
+
+    from openpyxl import Workbook
+    q, hide_zero = _dip_items_args()
+    _, rows = _dip_items_query(q, hide_zero)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DIP Items"
+    ws.append(DIP_ITEMS_HEADERS)
+    for r in rows:
+        ws.append([
+            r[0], r[1], r[2], r[3],
+            r[4] if r[4] is not None else 0,
+            round(float(r[5] or 0), 2), round(float(r[6] or 0), 2),
+        ])
+    for col, width in zip("ABCDEFG", (16, 18, 50, 22, 22, 14, 14)):
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True,
+        download_name=f"dip_items_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/admin/dip-items/export.pdf", methods=["GET"])
+def admin_dip_items_export_pdf():
+    """PDF export of all DIP items matching the current search / zero-stock filter."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+    if not is_admin():
+        return "Access denied", 403
+
+    import pymupdf  # imported here so the rest of the app runs even if it's missing
+    q, hide_zero = _dip_items_args()
+    total, rows = _dip_items_query(q, hide_zero)
+
+    page_w, page_h = 842, 595  # A4 landscape
+    margin, row_h, fs = 28, 15, 7.5
+    # column x offsets and widths (sum = page_w - 2*margin = 786)
+    widths = [75, 90, 280, 110, 75, 78, 78]
+    xs = [margin]
+    for w in widths[:-1]:
+        xs.append(xs[-1] + w)
+    numeric = {4, 5, 6}
+    font = pymupdf.Font("helv")
+    bold_font = pymupdf.Font("hebo")
+
+    char_w = {}  # per-font, per-character width cache (Font.text_length is too slow per cell)
+
+    def text_w(text, f):
+        cache = char_w.setdefault(id(f), {})
+        total_w = 0.0
+        for ch in text:
+            w = cache.get(ch)
+            if w is None:
+                w = cache[ch] = f.text_length(ch, 1)
+            total_w += w
+        return total_w * fs
+
+    def fit(text, width, f):
+        text = "" if text is None else str(text)
+        if text_w(text, f) <= width - 6:
+            return text
+        while text and text_w(text + "...", f) > width - 6:
+            text = text[:-1]
+        return text + "..."
+
+    def put(tw, i, text, y, bold=False):
+        f = bold_font if bold else font
+        text = fit(text, widths[i], f)
+        if i in numeric:
+            x = xs[i] + widths[i] - 3 - text_w(text, f)
+        else:
+            x = xs[i] + 3
+        tw.append((x, y), text, font=f, fontsize=fs)
+
+    doc = pymupdf.open()
+    rows_per_page = int((page_h - 2 * margin - 40) // row_h)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    page_count = max(1, -(-len(rows) // rows_per_page))
+    for pno in range(page_count):
+        page = doc.new_page(width=page_w, height=page_h)
+        tw = pymupdf.TextWriter(page.rect)
+        tw.append((margin, margin + 8), f"DIP Head Office Items - {total} items",
+                  font=bold_font, fontsize=11)
+        tw.append((margin, margin + 22), f"Generated {stamp}   Page {pno + 1} of {page_count}",
+                  font=font, fontsize=7)
+        y = margin + 40
+        page.draw_rect(pymupdf.Rect(margin, y - 11, page_w - margin, y + 4),
+                       color=None, fill=(0.88, 0.9, 0.95))
+        for i, h in enumerate(DIP_ITEMS_HEADERS):
+            put(tw, i, "DIP Stock" if i == 4 else h, y, bold=True)
+        y += row_h
+        for r in rows[pno * rows_per_page:(pno + 1) * rows_per_page]:
+            vals = [r[0], r[1], r[2], r[3],
+                    f"{float(r[4] or 0):g}",
+                    f"{float(r[5] or 0):.2f}", f"{float(r[6] or 0):.2f}"]
+            for i, v in enumerate(vals):
+                put(tw, i, v, y)
+            y += row_h
+        tw.write_text(page)
+
+    data = doc.tobytes(garbage=3, deflate=True)
+    doc.close()
+    return send_file(
+        io.BytesIO(data), as_attachment=True,
+        download_name=f"dip_items_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+        mimetype="application/pdf",
+    )
+
+
+RAS_ITEMS_HEADERS = ["Item Code", "UPC Code", "Description", "Brand",
+                     "Ras Al Khor Stock", "Selling Price", "Cost Price"]
+
+
+def _ras_items_query(q: str, hide_zero: bool, limit=None, offset=0):
+    """Return (total_count, rows) of Ras Al Khor stock_items filtered by search words / zero stock."""
+    where, params = ["1=1"], []
+    for w in [w for w in (q or "").lower().split() if w]:
+        like = f"%{w}%"
+        where.append("""(LOWER("ItemCode") LIKE ? OR LOWER("Upc Code") LIKE ?
+                         OR LOWER("Description") LIKE ? OR LOWER("Manufacturer Name") LIKE ?)""")
+        params.extend([like] * 4)
+    if hide_zero:
+        where.append('COALESCE("Stock Quantity", 0) > 0')
+    where_sql = " AND ".join(where)
+
+    with get_db_connection(DB_PATHS["RASALKHORE"], timeout=15.0) as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(*) FROM stock_items WHERE {where_sql}", params)
+        total = cur.fetchone()[0]
+        sql = f"""
+            SELECT "ItemCode" AS "Item Code", "Upc Code" AS "UPC Code", "Description",
+                   "Manufacturer Name" AS "Brand", "Stock Quantity" AS "Ras Al Khor Stock",
+                   "Selling Price", "CostPrice" AS "Cost Price"
+            FROM stock_items
+            WHERE {where_sql}
+            ORDER BY "Manufacturer Name", "ItemCode"
+        """
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            cur.execute(sql, params + [limit, offset])
+        else:
+            cur.execute(sql, params)
+        return total, cur.fetchall()
+
+
+def _ras_items_args():
+    q = (request.args.get("q") or "").strip()
+    hide_zero = request.args.get("hide_zero") == "1"
+    return q, hide_zero
+
+
+@app.route("/admin/ras-items", methods=["GET"])
+def admin_ras_items():
+    """Admin-only read-only list of every item in the Ras Al Khor stock table."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+    if not is_admin():
+        return "Access denied", 403
+
+    q, hide_zero = _ras_items_args()
+    try:
+        per_page = int(request.args.get("per_page", 100))
+    except ValueError:
+        per_page = 100
+    if per_page not in (50, 100, 200, 500):
+        per_page = 100
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError:
+        page = 1
+
+    total, _ = _ras_items_query(q, hide_zero, limit=0)
+    pages = max(1, -(-total // per_page))
+    page = min(page, pages)
+    _, rows = _ras_items_query(q, hide_zero, limit=per_page, offset=(page - 1) * per_page)
+
+    return render_template(
+        "admin_ras_items.html", rows=rows, total=total, q=q, hide_zero=hide_zero,
+        page=page, pages=pages, per_page=per_page,
+        first_row=(page - 1) * per_page + 1 if total else 0,
+        last_row=min(page * per_page, total),
+    )
+
+
+@app.route("/admin/ras-items/export.xlsx", methods=["GET"])
+def admin_ras_items_export_xlsx():
+    """Excel export of all Ras Al Khor items matching the current search / zero-stock filter."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+    if not is_admin():
+        return "Access denied", 403
+
+    from openpyxl import Workbook
+    q, hide_zero = _ras_items_args()
+    _, rows = _ras_items_query(q, hide_zero)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ras Al Khor Items"
+    ws.append(RAS_ITEMS_HEADERS)
+    for r in rows:
+        ws.append([
+            r[0], r[1], r[2], r[3],
+            r[4] if r[4] is not None else 0,
+            round(float(r[5] or 0), 2), round(float(r[6] or 0), 2),
+        ])
+    for col, width in zip("ABCDEFG", (16, 18, 50, 22, 22, 14, 14)):
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True,
+        download_name=f"ras_items_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/admin/ras-items/export.pdf", methods=["GET"])
+def admin_ras_items_export_pdf():
+    """PDF export of all Ras Al Khor items matching the current search / zero-stock filter."""
+    if "username" not in session:
+        return redirect(url_for("login"))
+    if not is_admin():
+        return "Access denied", 403
+
+    import pymupdf  # imported here so the rest of the app runs even if it's missing
+    q, hide_zero = _ras_items_args()
+    total, rows = _ras_items_query(q, hide_zero)
+
+    page_w, page_h = 842, 595  # A4 landscape
+    margin, row_h, fs = 28, 15, 7.5
+    # column x offsets and widths (sum = page_w - 2*margin = 786)
+    widths = [75, 90, 280, 110, 75, 78, 78]
+    xs = [margin]
+    for w in widths[:-1]:
+        xs.append(xs[-1] + w)
+    numeric = {4, 5, 6}
+    font = pymupdf.Font("helv")
+    bold_font = pymupdf.Font("hebo")
+
+    char_w = {}  # per-font, per-character width cache (Font.text_length is too slow per cell)
+
+    def text_w(text, f):
+        cache = char_w.setdefault(id(f), {})
+        total_w = 0.0
+        for ch in text:
+            w = cache.get(ch)
+            if w is None:
+                w = cache[ch] = f.text_length(ch, 1)
+            total_w += w
+        return total_w * fs
+
+    def fit(text, width, f):
+        text = "" if text is None else str(text)
+        if text_w(text, f) <= width - 6:
+            return text
+        while text and text_w(text + "...", f) > width - 6:
+            text = text[:-1]
+        return text + "..."
+
+    def put(tw, i, text, y, bold=False):
+        f = bold_font if bold else font
+        text = fit(text, widths[i], f)
+        if i in numeric:
+            x = xs[i] + widths[i] - 3 - text_w(text, f)
+        else:
+            x = xs[i] + 3
+        tw.append((x, y), text, font=f, fontsize=fs)
+
+    doc = pymupdf.open()
+    rows_per_page = int((page_h - 2 * margin - 40) // row_h)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    page_count = max(1, -(-len(rows) // rows_per_page))
+    for pno in range(page_count):
+        page = doc.new_page(width=page_w, height=page_h)
+        tw = pymupdf.TextWriter(page.rect)
+        tw.append((margin, margin + 8), f"Ras Al Khor Items - {total} items",
+                  font=bold_font, fontsize=11)
+        tw.append((margin, margin + 22), f"Generated {stamp}   Page {pno + 1} of {page_count}",
+                  font=font, fontsize=7)
+        y = margin + 40
+        page.draw_rect(pymupdf.Rect(margin, y - 11, page_w - margin, y + 4),
+                       color=None, fill=(0.88, 0.9, 0.95))
+        for i, h in enumerate(RAS_ITEMS_HEADERS):
+            put(tw, i, "RAS Stock" if i == 4 else h, y, bold=True)
+        y += row_h
+        for r in rows[pno * rows_per_page:(pno + 1) * rows_per_page]:
+            vals = [r[0], r[1], r[2], r[3],
+                    f"{float(r[4] or 0):g}",
+                    f"{float(r[5] or 0):.2f}", f"{float(r[6] or 0):.2f}"]
+            for i, v in enumerate(vals):
+                put(tw, i, v, y)
+            y += row_h
+        tw.write_text(page)
+
+    data = doc.tobytes(garbage=3, deflate=True)
+    doc.close()
+    return send_file(
+        io.BytesIO(data), as_attachment=True,
+        download_name=f"ras_items_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+        mimetype="application/pdf",
+    )
+
+
 @app.route("/admin/cost-price-overrides", methods=["GET", "POST"])
 def admin_cost_price_overrides():
     """Admin page to manage cost price overrides for specific brands."""

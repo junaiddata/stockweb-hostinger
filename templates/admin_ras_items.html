@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ras Al Khor Items</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0a1929 0%, #001e3c 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+        .top-nav {
+            background: rgba(10, 25, 41, 0.95);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .nav-title { font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.95); }
+        .nav-btn {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+        }
+        .nav-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+        .title { font-size: 26px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+        .subtitle { color: rgba(255, 255, 255, 0.65); font-size: 14px; margin-bottom: 16px; }
+        .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+        .controls input[type=text] {
+            flex: 1; min-width: 220px; padding: 10px 14px; border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.25);
+            color: #fff; font-family: inherit; font-size: 14px;
+        }
+        .controls label { font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+        .table-wrap { overflow-x: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        th { background: rgba(0,0,0,0.35); color: #fff; font-weight: 600; position: sticky; top: 0; white-space: nowrap; }
+        td.num, th.num { text-align: right; }
+        tr:hover td { background: rgba(255,255,255,0.04); }
+        .btn {
+            padding: 9px 16px; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 500;
+            text-decoration: none; cursor: pointer; border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(255,255,255,0.06); color: #fff;
+        }
+        .btn:hover { background: rgba(255,255,255,0.14); }
+        .btn.primary { background: #1976d2; border-color: #1976d2; }
+        .btn.excel { background: #1b7f46; border-color: #1b7f46; }
+        .btn.pdf { background: #c62828; border-color: #c62828; }
+        .controls select {
+            padding: 9px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.25); color: #fff; font-family: inherit; font-size: 13px;
+        }
+        .pager { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: center; margin: 16px 0; }
+        .pager a, .pager span {
+            padding: 7px 12px; border-radius: 8px; font-size: 13px; text-decoration: none;
+            border: 1px solid rgba(255,255,255,0.18); color: #fff;
+        }
+        .pager a:hover { background: rgba(255,255,255,0.12); }
+        .pager .current { background: #1976d2; border-color: #1976d2; font-weight: 600; }
+        .pager .disabled { opacity: 0.35; }
+    </style>
+    <style>
+        /* Light (white) theme for this page */
+        body { background: #f4f6f9; color: #1f2933; }
+        .top-nav { background: #ffffff; border-bottom: 1px solid #dde3ea; }
+        .nav-title, .title { color: #111827; }
+        .subtitle { color: #6b7280; }
+        .nav-btn { color: #374151; border-color: #cbd2d9; }
+        .nav-btn:hover { background: #eef1f5; color: #111827; }
+        .controls input[type=text], .controls select { background: #ffffff; color: #111827; border-color: #cbd2d9; }
+        .table-wrap { background: #ffffff; border-color: #dde3ea; }
+        th, td { border-bottom-color: #e8ecf0; }
+        th { background: #eef1f5; color: #111827; }
+        tr:hover td { background: #f6f9fc; }
+        .btn { background: #ffffff; color: #1f2933; border-color: #cbd2d9; }
+        .btn:hover { background: #eef1f5; }
+        .btn.primary { background: #1976d2; border-color: #1976d2; color: #fff; }
+        .btn.primary:hover { background: #1565c0; }
+        .btn.excel { background: #1b7f46; border-color: #1b7f46; color: #fff; }
+        .btn.excel:hover { background: #166a3a; }
+        .btn.pdf { background: #c62828; border-color: #c62828; color: #fff; }
+        .btn.pdf:hover { background: #a82020; }
+        .pager a, .pager span { background: #ffffff; color: #1f2933; border-color: #cbd2d9; }
+        .pager a:hover { background: #eef1f5; }
+        .pager .current { background: #1976d2; border-color: #1976d2; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="top-nav">
+        <div class="nav-title">Ras Al Khor Items</div>
+        <a href="{{ url_for('home') }}" class="nav-btn">Home</a>
+    </div>
+    <div class="container">
+        <div class="title">Ras Al Khor Items</div>
+        <div class="subtitle">
+            {% if total %}Showing {{ first_row }}-{{ last_row }} of {{ total }} items{% else %}No items found{% endif %}
+        </div>
+        <form class="controls" method="get" action="{{ url_for('admin_ras_items') }}">
+            <input type="text" name="q" value="{{ q }}" placeholder="Search item code, UPC, description or brand..." autocomplete="off">
+            <label><input type="checkbox" name="hide_zero" value="1" {% if hide_zero %}checked{% endif %}> Hide zero stock</label>
+            <select name="per_page" title="Rows per page">
+                {% for n in (50, 100, 200, 500) %}
+                <option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }} / page</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn primary">Search</button>
+            <a href="{{ url_for('admin_ras_items') }}" class="btn">Reset</a>
+            <a href="{{ url_for('admin_ras_items_export_xlsx', q=q, hide_zero=1 if hide_zero else None) }}" class="btn excel">Export Excel</a>
+            <a href="{{ url_for('admin_ras_items_export_pdf', q=q, hide_zero=1 if hide_zero else None) }}" class="btn pdf">Export PDF</a>
+        </form>
+        {% macro pager() %}
+        {% if pages > 1 %}
+        {% set args = {'q': q, 'hide_zero': 1 if hide_zero else None, 'per_page': per_page} %}
+        <div class="pager">
+            {% if page > 1 %}
+            <a href="{{ url_for('admin_ras_items', page=1, **args) }}">&laquo; First</a>
+            <a href="{{ url_for('admin_ras_items', page=page - 1, **args) }}">&lsaquo; Prev</a>
+            {% else %}
+            <span class="disabled">&laquo; First</span><span class="disabled">&lsaquo; Prev</span>
+            {% endif %}
+            {% for p in range([1, page - 2]|max, [pages, page + 2]|min + 1) %}
+                {% if p == page %}<span class="current">{{ p }}</span>
+                {% else %}<a href="{{ url_for('admin_ras_items', page=p, **args) }}">{{ p }}</a>{% endif %}
+            {% endfor %}
+            {% if page < pages %}
+            <a href="{{ url_for('admin_ras_items', page=page + 1, **args) }}">Next &rsaquo;</a>
+            <a href="{{ url_for('admin_ras_items', page=pages, **args) }}">Last &raquo;</a>
+            {% else %}
+            <span class="disabled">Next &rsaquo;</span><span class="disabled">Last &raquo;</span>
+            {% endif %}
+            <span>Page {{ page }} of {{ pages }}</span>
+        </div>
+        {% endif %}
+        {% endmacro %}
+        {{ pager() }}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item Code</th>
+                        <th>UPC Code</th>
+                        <th>Description</th>
+                        <th>Brand</th>
+                        <th class="num">Ras Al Khor Stock</th>
+                        <th class="num">Selling Price</th>
+                        <th class="num">Cost Price</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ r[0] or '' }}</td>
+                        <td>{{ r[1] or '' }}</td>
+                        <td>{{ r[2] or '' }}</td>
+                        <td>{{ r[3] or '' }}</td>
+                        <td class="num">{{ r[4] if r[4] is not none else 0 }}</td>
+                        <td class="num">{{ '%.2f'|format(r[5] or 0) }}</td>
+                        <td class="num">{{ '%.2f'|format(r[6] or 0) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" style="text-align:center;padding:24px;">No items match your search.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ pager() }}
+    </div>
+</body>
+</html>
