@@ -198,7 +198,8 @@ def device_restriction_middleware():
     allowed_endpoints = [
         'login', 'register_device', 'device_pending', 'approve_devices',
         'admin_brand_margins', 'api_update_brand_margin', 'logout',
-        'logo_proxy', 'stock_api', 'api_sync_stock', 'api_get_brand_margins'
+        'logo_proxy', 'stock_api', 'api_sync_stock', 'api_get_brand_margins',
+        'api_alabama_stock'
     ]
     
     if request.endpoint in allowed_endpoints:
@@ -2746,6 +2747,168 @@ def update_min_price():
         except: pass
 
     return jsonify(ok=True, item_code=item_code, price=price_val, source="override", branch=branch)
+
+
+# ==========================================
+# ALABAMA STOCK API (for external application, API-key protected)
+# GET /api/alabama/stock            -> all Alabama items
+# GET /api/alabama/stock?item_code= -> single item
+# Send key in header:  X-API-Key: <key>
+# ==========================================
+# Optional query params: limit, offset (pagination), include_cost=1 (cost price is hidden by default).
+# The key MUST come from the environment (no hardcoded fallback). If unset, the API is disabled.
+ALABAMA_API_KEY = os.environ.get("ALABAMA_API_KEY", "")
+ALABAMA_API_CACHE_TTL = 30          # seconds the full item list is cached
+ALABAMA_API_RATE_LIMIT = 60         # max requests per minute (per process)
+ALABAMA_API_MAX_LIMIT = 5000
+_alabama_api_init_done = False
+_alabama_api_cache = {"ts": 0.0, "rows": None}
+_alabama_api_hits = []
+_alabama_api_lock = threading.Lock()
+
+@app.route("/api/alabama/stock", methods=["GET"])
+def api_alabama_stock():
+    import hmac
+    import time as _time
+    global _alabama_api_init_done
+
+    if not ALABAMA_API_KEY:
+        return jsonify({"ok": False, "error": "API not configured"}), 503
+
+    provided = request.headers.get("X-API-Key", "")
+    if not provided or not hmac.compare_digest(provided.encode("utf-8"), ALABAMA_API_KEY.encode("utf-8")):
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+    # Simple in-memory rate limit (after auth so bad keys can't fill the window)
+    now = _time.time()
+    with _alabama_api_lock:
+        _alabama_api_hits[:] = [t for t in _alabama_api_hits if now - t < 60]
+        if len(_alabama_api_hits) >= ALABAMA_API_RATE_LIMIT:
+            return jsonify({"ok": False, "error": "Rate limit exceeded"}), 429
+        _alabama_api_hits.append(now)
+
+    alabama_db = DB_PATHS["ALABAMA"]
+    dip_db_path = os.path.abspath(DB_PATHS["DIP"])
+    item_code_filter = (request.args.get("item_code") or "").strip()
+    include_cost = (request.args.get("include_cost") or "").strip().lower() in ("1", "true", "yes")
+    try:
+        limit = int(request.args.get("limit")) if request.args.get("limit") else None
+        offset = max(int(request.args.get("offset") or 0), 0)
+    except ValueError:
+        return jsonify({"ok": False, "error": "limit/offset must be integers"}), 400
+    if limit is not None:
+        limit = max(1, min(limit, ALABAMA_API_MAX_LIMIT))
+
+    try:
+        # Schema checks run once per process (they take write locks), not on every request.
+        if not _alabama_api_init_done:
+            ensure_alabama_stock_items_table(alabama_db)
+            ensure_override_table(alabama_db)
+            ensure_override_table(DB_PATHS["DIP"])
+            ensure_brand_margins_table(DB_PATHS["DIP"])
+            _alabama_api_init_done = True
+
+        # Same query/price logic as the Alabama page (own stock/cost; selling price = override,
+        # else Alabama uploaded price, else DIP price + 3%).
+        sql = """
+            SELECT
+                si."ItemCode",
+                si."Upc Code",
+                si."Description",
+                si."Manufacturer Name",
+                si."Warehouse Code",
+                COALESCE(si."Stock Quantity", 0),
+                COALESCE(si."Free Stock", 0),
+                ROUND(COALESCE(po.CostPriceOverride, si."CostPrice", 0), 2),
+                CASE WHEN po.SellingPriceOverride IS NOT NULL THEN ROUND(po.SellingPriceOverride, 2)
+                     WHEN COALESCE(si."Selling Price", 0) > 0 THEN ROUND(si."Selling Price", 2)
+                     ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
+                                       AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
+                                       AND CAST(COALESCE(dip_si."CostPrice", 0) AS REAL) > 0
+                                  THEN ROUND(CAST(dip_si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
+                                  WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", 0)
+                                  ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                                            THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                                            ELSE 0 END END) * 1.03, 2) END,
+                COALESCE(si."CTN Qty", 0),
+                COALESCE(si."Last Received Qty", 0),
+                COALESCE(si."Last Received Date", '')
+            FROM stock_items si
+            LEFT JOIN dip.stock_items dip_si ON TRIM(dip_si."ItemCode") = TRIM(si."ItemCode")
+            LEFT JOIN dip.price_overrides dip_po ON TRIM(dip_po.ItemCode) = TRIM(dip_si."ItemCode")
+            LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(dip_si."Manufacturer Name"))
+            LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
+        """
+        params = []
+        if item_code_filter:
+            sql += ' WHERE TRIM(si."ItemCode") = TRIM(?)'
+            params.append(item_code_filter)
+        sql += ' ORDER BY si."ItemCode"'
+
+        rows = None
+        if not item_code_filter:
+            with _alabama_api_lock:
+                if _alabama_api_cache["rows"] is not None and (now - _alabama_api_cache["ts"]) < ALABAMA_API_CACHE_TTL:
+                    rows = _alabama_api_cache["rows"]
+
+        if rows is None:
+            with get_db_connection(alabama_db, timeout=10.0) as conn:
+                cur = conn.cursor()
+                cur.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
+                try:
+                    cur.execute(sql, params)
+                    rows = cur.fetchall()
+                finally:
+                    try:
+                        cur.execute("DETACH DATABASE dip")
+                    except Exception:
+                        pass
+            if not item_code_filter:
+                with _alabama_api_lock:
+                    _alabama_api_cache["rows"] = rows
+                    _alabama_api_cache["ts"] = now
+
+        try:
+            sold_map = fetch_alabama_sold_map()
+        except Exception:
+            sold_map = {}
+        # False => sales-order service was unreachable, so Sold* values are not real zeros
+        sold_available = bool(sold_map)
+
+        total = len(rows)
+        page_rows = rows[offset:] if limit is None else rows[offset:offset + limit]
+
+        items = []
+        for r in page_rows:
+            code = str(r[0]).strip() if r[0] is not None else ""
+            sold = sold_map.get(code, {}) or {}
+            item = {
+                "ItemCode": r[0],
+                "UpcCode": r[1],
+                "Description": r[2],
+                "ManufacturerName": r[3],
+                "WarehouseCode": r[4],
+                "StockQuantity": r[5],
+                "FreeStock": r[6],
+                "SellingPrice": r[8],
+                "CtnQty": r[9],
+                "LastReceivedQty": r[10],
+                "LastReceivedDate": r[11],
+                "SoldTotal": sold.get("total", 0.0),
+                "SoldTotal2025": sold.get("total_2025", 0.0),
+                "SoldTotal2026": sold.get("total_2026", 0.0),
+            }
+            if include_cost:
+                item["CostPrice"] = r[7]
+            items.append(item)
+
+        if item_code_filter and not items:
+            return jsonify({"ok": False, "error": "Item not found"}), 404
+        return jsonify({"ok": True, "total": total, "count": len(items), "offset": offset,
+                        "sold_data_available": sold_available, "items": items})
+    except Exception as e:
+        print(f"[api_alabama_stock] error: {e}")
+        return jsonify({"ok": False, "error": "Internal error"}), 500
 
 
 # API key for PC sync script (change this to a secure random string)
