@@ -2766,6 +2766,49 @@ _alabama_api_cache = {"ts": 0.0, "rows": None}
 _alabama_api_hits = []
 _alabama_api_lock = threading.Lock()
 
+# Indexed TEMP copies of the lookup data. Keys match the old TRIM()/LOWER(TRIM()) comparisons exactly.
+# Columns are untyped on purpose so stored values are copied unchanged (no type conversion).
+_ALABAMA_API_TEMP_SETUP = [
+    'CREATE TEMP TABLE t_dip_si (k PRIMARY KEY, cost, sell, brand_k)',
+    'INSERT OR IGNORE INTO t_dip_si SELECT TRIM("ItemCode"), "CostPrice", "Selling Price", LOWER(TRIM("Manufacturer Name")) FROM dip.stock_items',
+    'CREATE TEMP TABLE t_dip_po (k PRIMARY KEY, sell)',
+    'INSERT OR IGNORE INTO t_dip_po SELECT TRIM(ItemCode), SellingPriceOverride FROM dip.price_overrides',
+    'CREATE TEMP TABLE t_bm (k PRIMARY KEY, margin_percent, use_admin_price, admin_extra_margin_percent)',
+    'INSERT OR IGNORE INTO t_bm SELECT LOWER(TRIM(brand_name)), margin_percent, use_admin_price, admin_extra_margin_percent FROM dip.brand_margins',
+    'CREATE TEMP TABLE t_al_po (k PRIMARY KEY, cost_ov, sell_ov)',
+    'INSERT OR IGNORE INTO t_al_po SELECT TRIM(ItemCode), CostPriceOverride, SellingPriceOverride FROM main.price_overrides',
+]
+
+_ALABAMA_API_SQL = """
+    SELECT
+        si."ItemCode",
+        si."Upc Code",
+        si."Description",
+        si."Manufacturer Name",
+        si."Warehouse Code",
+        COALESCE(si."Stock Quantity", 0),
+        COALESCE(si."Free Stock", 0),
+        ROUND(COALESCE(po.cost_ov, si."CostPrice", 0), 2),
+        CASE WHEN po.sell_ov IS NOT NULL THEN ROUND(po.sell_ov, 2)
+             WHEN COALESCE(si."Selling Price", 0) > 0 THEN ROUND(si."Selling Price", 2)
+             ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
+                               AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
+                               AND CAST(COALESCE(dip_si.cost, 0) AS REAL) > 0
+                          THEN ROUND(CAST(dip_si.cost AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
+                          WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si.sell, 0)
+                          ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
+                                    THEN ROUND(COALESCE(dip_po.sell, dip_si.sell, 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
+                                    ELSE 0 END END) * 1.03, 2) END,
+        COALESCE(si."CTN Qty", 0),
+        COALESCE(si."Last Received Qty", 0),
+        COALESCE(si."Last Received Date", '')
+    FROM stock_items si
+    LEFT JOIN t_dip_si dip_si ON dip_si.k = TRIM(si."ItemCode")
+    LEFT JOIN t_dip_po dip_po ON dip_po.k = dip_si.k
+    LEFT JOIN t_bm bm ON bm.k = dip_si.brand_k
+    LEFT JOIN t_al_po po ON po.k = TRIM(si."ItemCode")
+"""
+
 @app.route("/api/alabama/stock", methods=["GET"])
 def api_alabama_stock():
     import hmac
@@ -2808,37 +2851,11 @@ def api_alabama_stock():
             ensure_brand_margins_table(DB_PATHS["DIP"])
             _alabama_api_init_done = True
 
-        # Same query/price logic as the Alabama page (own stock/cost; selling price = override,
+        # Same price logic as the Alabama page (own stock/cost; selling price = override,
         # else Alabama uploaded price, else DIP price + 3%).
-        sql = """
-            SELECT
-                si."ItemCode",
-                si."Upc Code",
-                si."Description",
-                si."Manufacturer Name",
-                si."Warehouse Code",
-                COALESCE(si."Stock Quantity", 0),
-                COALESCE(si."Free Stock", 0),
-                ROUND(COALESCE(po.CostPriceOverride, si."CostPrice", 0), 2),
-                CASE WHEN po.SellingPriceOverride IS NOT NULL THEN ROUND(po.SellingPriceOverride, 2)
-                     WHEN COALESCE(si."Selling Price", 0) > 0 THEN ROUND(si."Selling Price", 2)
-                     ELSE ROUND((CASE WHEN COALESCE(bm.use_admin_price, 1) = 0
-                                       AND (1 + COALESCE(bm.margin_percent, 15)/100) > 0
-                                       AND CAST(COALESCE(dip_si."CostPrice", 0) AS REAL) > 0
-                                  THEN ROUND(CAST(dip_si."CostPrice" AS REAL) * (1 + COALESCE(bm.margin_percent, 15)/100), 2)
-                                  WHEN COALESCE(bm.use_admin_price, 1) = 0 THEN COALESCE(dip_si."Selling Price", 0)
-                                  ELSE CASE WHEN (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100) > 0
-                                            THEN ROUND(COALESCE(dip_po.SellingPriceOverride, dip_si."Selling Price", 0) * (1 + COALESCE(bm.admin_extra_margin_percent, 0)/100), 2)
-                                            ELSE 0 END END) * 1.03, 2) END,
-                COALESCE(si."CTN Qty", 0),
-                COALESCE(si."Last Received Qty", 0),
-                COALESCE(si."Last Received Date", '')
-            FROM stock_items si
-            LEFT JOIN dip.stock_items dip_si ON TRIM(dip_si."ItemCode") = TRIM(si."ItemCode")
-            LEFT JOIN dip.price_overrides dip_po ON TRIM(dip_po.ItemCode) = TRIM(dip_si."ItemCode")
-            LEFT JOIN dip.brand_margins bm ON LOWER(TRIM(bm.brand_name)) = LOWER(TRIM(dip_si."Manufacturer Name"))
-            LEFT JOIN price_overrides po ON TRIM(po.ItemCode) = TRIM(si."ItemCode")
-        """
+        # Speed: the lookup tables are copied into indexed TEMP tables (keys pre-trimmed/lowercased)
+        # so the joins use an index instead of scanning the whole DIP table for every item.
+        sql = _ALABAMA_API_SQL
         params = []
         if item_code_filter:
             sql += ' WHERE TRIM(si."ItemCode") = TRIM(?)'
@@ -2856,9 +2873,16 @@ def api_alabama_stock():
                 cur = conn.cursor()
                 cur.execute(f'ATTACH DATABASE "{dip_db_path}" AS dip')
                 try:
+                    for stmt in _ALABAMA_API_TEMP_SETUP:
+                        cur.execute(stmt)
                     cur.execute(sql, params)
                     rows = cur.fetchall()
                 finally:
+                    try:
+                        for tbl in ("t_dip_si", "t_dip_po", "t_bm", "t_al_po"):
+                            cur.execute(f"DROP TABLE IF EXISTS temp.{tbl}")
+                    except Exception:
+                        pass
                     try:
                         cur.execute("DETACH DATABASE dip")
                     except Exception:
