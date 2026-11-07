@@ -975,6 +975,9 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             if mfg in brand_admin_extra: return brand_admin_extra[mfg]
             return brand_admin_extra_lower.get(mfg.lower(), default_admin_extra)
         
+        # Admin cost overrides (cost price import page): keep them instead of the API average price
+        cost_price_overrides = get_cost_price_overrides(DB_PATHS["DIP"])
+
         # Process API items
         items_to_insert = []
         items_updated = 0
@@ -993,6 +996,7 @@ def sync_stock_from_api(warehouse_code, keep_admin_prices=True):
             whs_code = str(item.get("WhsCode", "")).strip()
             on_hand = _to_float(item.get("OnHand", 0), 0.0)
             avg_price = _to_float(item.get("AvgPrice", 0), 0.0)
+            avg_price = cost_price_overrides.get(item_code, avg_price)
             
             # Selling price: use admin override if brand allows, else brand margin as markup on cost (%)
             margin_pct = _get_margin(manufacturer)
@@ -5557,6 +5561,164 @@ def admin_dip_selling_price_import():
                     message, message_type = f"Database error: {e}", "danger"
 
     return render_template("admin_dip_selling_price_import.html",
+                           result=result, message=message, message_type=message_type)
+
+
+def parse_dip_cost_price_sheet(file_obj):
+    """Read (item_code, new_cost, new_min_selling_price) from the stock-team Excel sheet.
+
+    Headers are matched case-insensitively, ignoring spaces/punctuation. The header row is found
+    automatically in the first 15 rows. Needs 'ITEM CODE' plus 'New COST' and/or
+    'New MIN Selling Price'. The old 'COST' / 'MIN Price' columns are never read.
+    Returns (rows, error); a blank or invalid value is returned as None.
+    """
+    item_keys = {"itemcode", "itemno", "item"}
+    cost_keys = {"newcost"}
+    price_keys = {"newminsellingprice", "newminprice", "newsellingprice"}
+    raw = pd.read_excel(file_obj, header=None, dtype=str)
+    header_idx = item_col = cost_col = price_col = None
+    for idx in range(min(15, len(raw))):
+        names = [_norm_header(v) for v in raw.iloc[idx].tolist()]
+        i = next((n for n, h in enumerate(names) if h in item_keys), None)
+        c = next((n for n, h in enumerate(names) if h in cost_keys), None)
+        p = next((n for n, h in enumerate(names) if h in price_keys), None)
+        if i is not None and (c is not None or p is not None):
+            header_idx, item_col, cost_col, price_col = idx, i, c, p
+            break
+    if header_idx is None:
+        return None, "Could not find the columns 'ITEM CODE' with 'New COST' and/or 'New MIN Selling Price' in the first rows of the file."
+
+    def _num(v):
+        if pd.isna(v):
+            return None
+        try:
+            n = round(float(str(v).replace(",", "").replace("AED", "").strip()), 2)
+        except (ValueError, TypeError):
+            return None
+        return n if n > 0 else None
+
+    rows = []
+    for _, r in raw.iloc[header_idx + 1:].iterrows():
+        code = str(r.iloc[item_col]).strip() if pd.notna(r.iloc[item_col]) else ""
+        if code.endswith(".0") and code[:-2].isdigit():
+            code = code[:-2]
+        if not code or code.lower() == "nan":
+            continue
+        cost = _num(r.iloc[cost_col]) if cost_col is not None else None
+        price = _num(r.iloc[price_col]) if price_col is not None else None
+        rows.append((code, cost, price))
+    return rows, None
+
+
+@app.route("/admin/dip-cost-price-import", methods=["GET", "POST"])
+def admin_dip_cost_price_import():
+    """Update DIP cost and min selling price together from the stock-team Excel sheet.
+
+    Only items present in the file AND already in DIP are touched, and only the fields that have a
+    value in 'New COST' / 'New MIN Selling Price'. Selling price is saved as an admin override
+    (same as the inline edit button). Cost is saved as a cost override (so stock syncs keep it) and
+    written to stock_items.CostPrice so it shows immediately.
+    """
+    if "username" not in session:
+        return redirect(url_for("login"))
+
+    result = None
+    message = None
+    message_type = None
+
+    if request.method == "POST":
+        action = request.form.get("action", "preview")
+        file = request.files.get("file")
+        if not file or file.filename == "":
+            message, message_type = "Please choose an Excel file.", "danger"
+        elif not file.filename.lower().endswith((".xlsx", ".xls")):
+            message, message_type = "Please upload an Excel file (.xlsx or .xls).", "danger"
+        else:
+            try:
+                rows, err = parse_dip_cost_price_sheet(file)
+            except Exception as e:
+                rows, err = None, f"Error reading Excel: {e}"
+            if err:
+                message, message_type = err, "danger"
+            else:
+                db_path = DB_PATHS["DIP"]
+                ensure_override_table(db_path)
+                ensure_cost_price_overrides_table(db_path)
+                editor = session.get("username", "admin")
+                changes, unchanged, not_in_dip, nothing, duplicates = [], [], [], [], 0
+                seen = set()
+                n_cost = n_price = 0
+                try:
+                    with get_db_connection(db_path, timeout=30.0) as conn:
+                        cur = conn.cursor()
+                        cur.execute('SELECT TRIM("ItemCode"), "ItemCode", "CostPrice", "Manufacturer Name" FROM stock_items')
+                        dip = {t: (a, c, m) for t, a, c, m in cur.fetchall()}
+                        cur.execute("SELECT ItemCode, SellingPriceOverride FROM price_overrides")
+                        cur_price = {str(c).strip(): o for c, o in cur.fetchall()}
+
+                        for code, new_cost, new_price in rows:
+                            if code in seen:
+                                duplicates += 1
+                                continue
+                            seen.add(code)
+                            if code not in dip:
+                                not_in_dip.append(code)
+                                continue
+                            if new_cost is None and new_price is None:
+                                nothing.append(code)
+                                continue
+                            actual, old_cost, manufacturer = dip[code]
+                            do_cost = new_cost is not None and (old_cost is None or abs(float(old_cost) - new_cost) >= 0.005)
+                            old_price = cur_price.get(code)
+                            do_price = new_price is not None and (old_price is None or abs(float(old_price) - new_price) >= 0.005)
+                            if not do_cost and not do_price:
+                                unchanged.append(code)
+                                continue
+                            changes.append((code, old_cost if do_cost else None, new_cost if do_cost else None,
+                                            old_price if do_price else None, new_price if do_price else None))
+                            n_cost += 1 if do_cost else 0
+                            n_price += 1 if do_price else 0
+                            if action == "apply":
+                                if do_cost:
+                                    cur.execute('UPDATE stock_items SET "CostPrice" = ? WHERE "ItemCode" = ?', (new_cost, actual))
+                                    cur.execute("""
+                                        INSERT INTO cost_price_overrides (ItemCode, CostPrice, Brand, uploaded_by)
+                                        VALUES (?, ?, ?, ?)
+                                        ON CONFLICT(ItemCode) DO UPDATE SET
+                                            CostPrice = excluded.CostPrice,
+                                            Brand = excluded.Brand,
+                                            uploaded_by = excluded.uploaded_by,
+                                            uploaded_at = datetime('now')
+                                    """, (actual, new_cost, manufacturer, editor))
+                                if do_price:
+                                    cur.execute("""
+                                        INSERT INTO price_overrides (ItemCode, SellingPriceOverride, edited_by)
+                                        VALUES (?, ?, ?)
+                                        ON CONFLICT(ItemCode) DO UPDATE SET
+                                            SellingPriceOverride = excluded.SellingPriceOverride,
+                                            edited_by = excluded.edited_by,
+                                            edited_at = datetime('now')
+                                    """, (actual, new_price, editor))
+                    result = {
+                        "applied": action == "apply",
+                        "rows": len(rows),
+                        "changed": len(changes),
+                        "n_cost": n_cost,
+                        "n_price": n_price,
+                        "unchanged": len(unchanged),
+                        "not_in_dip": not_in_dip,
+                        "nothing": nothing,
+                        "duplicates": duplicates,
+                        "sample": changes[:20],
+                    }
+                    if action == "apply":
+                        message = f"Updated {n_cost} cost(s) and {n_price} min selling price(s) across {len(changes)} DIP items."
+                        message_type = "success"
+                except sqlite3.Error as e:
+                    result = None
+                    message, message_type = f"Database error: {e}", "danger"
+
+    return render_template("admin_dip_cost_price_import.html",
                            result=result, message=message, message_type=message_type)
 
 
