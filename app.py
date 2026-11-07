@@ -1,3 +1,5 @@
+import difflib
+import re
 from flask import Flask, request, render_template, redirect, url_for
 import sqlite3
 import pandas as pd
@@ -1634,6 +1636,65 @@ def alabama_home():
 # cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
 # print("Tables in DB:", cursor.fetchall())
 # conn.close()
+# Branches that show the "filter by brand" dropdown on the stock page
+BRAND_FILTER_BRANCHES = ("DIP", "ALABAMA")
+
+def _brand_norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+def _brand_skeleton(s):
+    return re.sub(r"[aeiou]", "", _brand_norm(s))
+
+def _brand_match_score(query, name):
+    """1.0 = substring match; otherwise fuzzy score (typos / missing vowels), 0..0.95."""
+    qn = _brand_norm(query)
+    if not qn:
+        return 1.0
+    nn = _brand_norm(name)
+    if qn in nn:
+        return 1.0
+    qs = _brand_skeleton(query)
+    tokens = [t for t in re.split(r"[^a-z0-9]+", (name or "").lower()) if t] + [nn]
+    best = 0.0
+    for t in tokens:
+        r = difflib.SequenceMatcher(None, qn, t).ratio()
+        if len(t) > len(qn):
+            r = max(r, difflib.SequenceMatcher(None, qn, t[:len(qn)]).ratio())
+        best = max(best, r)
+        if len(qs) >= 3:
+            ts = _brand_skeleton(t)
+            if ts:
+                best = max(best, difflib.SequenceMatcher(None, qs, ts).ratio() * 0.95)
+    return min(best, 0.99)
+
+@app.route("/api/brands/<branch>")
+def api_brand_options(branch):
+    """Brand (Manufacturer Name) suggestions for the stock-page brand filter (typo tolerant)."""
+    branch = (branch or "").upper()
+    if branch not in BRAND_FILTER_BRANCHES:
+        return jsonify({"brands": []}), 404
+    q = (request.args.get("q") or "").strip()
+    brands = []
+    try:
+        with get_db_connection(DB_PATHS[branch], timeout=10.0) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'SELECT MIN(TRIM("Manufacturer Name")), COUNT(*) FROM stock_items '
+                "WHERE TRIM(COALESCE(\"Manufacturer Name\", '')) <> '' "
+                'GROUP BY UPPER(TRIM("Manufacturer Name"))'
+            )
+            rows = cur.fetchall()
+        scored = []
+        for name, cnt in rows:
+            sc = _brand_match_score(q, name)
+            if not q or sc >= 0.8:
+                scored.append((sc, name, cnt))
+        scored.sort(key=lambda x: (-x[0], x[1].upper()))
+        brands = [{"name": n, "count": c} for _, n, c in scored[:500]]
+    except sqlite3.Error as e:
+        print(f"[api_brand_options] {branch}: {e}")
+    return jsonify({"brands": brands})
+
 @app.route("/headoffice", methods=["GET", "POST"])
 def headoffice():
     return stock_page("DIP")
@@ -1684,10 +1745,20 @@ def stock_page(branch):
     show_only_zero_stock = False
     hide_zero_cost = False
     category = ""
+    brand_filter_enabled = branch in BRAND_FILTER_BRANCHES
+    selected_brands = []
 
     if request.method == "POST":
         query = request.form.get("query", "").strip().lower()
         category = request.form.get("category", "").strip()
+        if brand_filter_enabled:
+            _seen_brands = set()
+            for _b in request.form.getlist("brands"):
+                _b = (_b or "").strip()
+                if _b and _b.lower() not in _seen_brands:
+                    _seen_brands.add(_b.lower())
+                    selected_brands.append(_b)
+            selected_brands = selected_brands[:500]
         if category not in item_cats.CATEGORIES:
             category = ""
         bulk_item_codes = request.form.get("bulk_item_codes", "")
@@ -1706,7 +1777,7 @@ def stock_page(branch):
                 print(f"[item_categories] unavailable, category filter ignored: {e}")
                 category = ""
 
-        if query or bulk_codes or category:
+        if query or bulk_codes or category or selected_brands:
             db_path = DB_PATHS[branch]
 
             # make sure overrides table exists for JOINs
@@ -1862,6 +1933,11 @@ def stock_page(branch):
                             f'TRIM({col_item}) IN (SELECT ItemCode FROM main.item_categories WHERE Category = ?)'
                         )
                         params.append(category)
+
+                    if selected_brands:
+                        brand_placeholders = ",".join(["?"] * len(selected_brands))
+                        conditions.append(f"LOWER(TRIM({col_mfg})) IN ({brand_placeholders})")
+                        params.extend(b.lower() for b in selected_brands)
 
                     sql_query += " AND ".join(conditions)
 
@@ -2081,6 +2157,8 @@ def stock_page(branch):
         hide_zero_cost=hide_zero_cost,
         bulk_item_codes=bulk_item_codes,
         category=category,
+        brand_filter_enabled=brand_filter_enabled,
+        selected_brands=selected_brands,
         category_options=item_cats.CATEGORIES,
         category_map=_category_map_for(branch, results),
         branch=branch,

@@ -303,6 +303,37 @@
 
         .category-filter select:focus { border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
 
+        /* ---- Brand filter (DIP / Alabama) ---- */
+        .brand-filter { margin-top: 0.85rem; position: relative; }
+        .brand-filter-toggle {
+            width: 100%; text-align: left; padding: 12px 46px 12px 20px; font-family: inherit; font-size: 1rem;
+            color: var(--text-color, #222); background-color: var(--card-background, #fff);
+            border: 1px solid var(--border-color); border-radius: 25px; cursor: pointer;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+            background-repeat: no-repeat; background-position: right 20px center;
+        }
+        .brand-filter-toggle:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 8px rgba(13, 71, 161, 0.2); }
+        .brand-filter-panel {
+            display: none; position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 50;
+            background: var(--card-background, #fff); border: 1px solid var(--border-color); border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 0.75rem;
+        }
+        .brand-filter.open .brand-filter-panel { display: block; }
+        .brand-filter-panel input[type="text"] { padding: 10px 16px; border-radius: 20px; }
+        .brand-filter-actions { display: flex; gap: 0.5rem; margin: 0.6rem 0; flex-wrap: wrap; }
+        .brand-filter-actions button {
+            min-width: 0; padding: 6px 14px; font-size: 0.85rem; border-radius: 16px;
+            border: 1px solid var(--primary-color); background: #fff; color: var(--primary-color); cursor: pointer;
+        }
+        .brand-filter-actions button.apply { background: var(--primary-color); color: #fff; margin-left: auto; }
+        .brand-filter-list { max-height: 260px; overflow-y: auto; border-top: 1px solid var(--border-color); }
+        .brand-filter-list label { display: flex; align-items: center; gap: 0.6rem; padding: 7px 4px; cursor: pointer; font-size: 0.95rem; }
+        .brand-filter-list label:hover { background: rgba(13, 71, 161, 0.06); }
+        .brand-filter-list .cnt { margin-left: auto; color: #888; font-size: 0.8rem; }
+        .brand-filter-empty { padding: 10px 4px; color: #888; font-size: 0.9rem; }
+        .brand-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+        .brand-chip { background: rgba(13, 71, 161, 0.1); color: var(--primary-color); border-radius: 14px; padding: 3px 10px; font-size: 0.8rem; }
+
         .bulk-item-codes-wrapper {
             margin-top: 0.85rem;
             display: none;
@@ -544,6 +575,25 @@
                         <label for="bulkItemCodes">Bulk item codes / UPC codes (new line, space, or comma separated)</label>
                         <textarea id="bulkItemCodes" name="bulk_item_codes" placeholder="List the item codes or UPC codes here">{{ bulk_item_codes or '' }}</textarea>
                     </div>
+                    {% if brand_filter_enabled %}
+                    <div class="brand-filter" id="brandFilter" data-branch="{{ branch }}">
+                        <button type="button" class="brand-filter-toggle" id="brandFilterToggle">Filter by brand</button>
+                        <div class="brand-filter-panel" id="brandFilterPanel">
+                            <input type="text" id="brandSearchInput" placeholder="Search brands (e.g. cosmo)" autocomplete="off">
+                            <div class="brand-filter-actions">
+                                <button type="button" id="brandSelectAll">Select all</button>
+                                <button type="button" id="brandClearAll">Clear all</button>
+                                <button type="button" class="apply" id="brandApply">Apply</button>
+                            </div>
+                            <div class="brand-filter-list" id="brandFilterList"></div>
+                        </div>
+                        <div class="brand-chips" id="brandChips"></div>
+                        <div id="brandHiddenInputs">
+                            {% for b in selected_brands %}<input type="hidden" name="brands" value="{{ b }}">{% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {# HIDDEN-CATEGORY-FILTER
                     {% if category_options %}
                     <div class="category-filter">
                         <select name="category" id="categoryFilter" aria-label="Category">
@@ -554,6 +604,7 @@
                         </select>
                     </div>
                     {% endif %}
+                    #}
                     <div class="controls">
                         <label class="toggle-switch">
                             <input type="checkbox" id="bulkSearchToggle">
@@ -632,6 +683,97 @@
                     if (submitBtn) submitBtn.textContent = oldText || 'Search';
                 }
             });
+        })();
+
+        // Brand filter (DIP / Alabama): search brands, tick, select all / clear all, apply
+        (function initBrandFilter() {
+            const root = document.getElementById('brandFilter');
+            if (!root) return;
+            const form = document.getElementById('searchForm');
+            const toggle = document.getElementById('brandFilterToggle');
+            const input = document.getElementById('brandSearchInput');
+            const list = document.getElementById('brandFilterList');
+            const chips = document.getElementById('brandChips');
+            const hidden = document.getElementById('brandHiddenInputs');
+            const branch = root.dataset.branch;
+            const selected = new Map();   // lower-case name -> display name (kept across searches)
+            hidden.querySelectorAll('input[name="brands"]').forEach(i => selected.set(i.value.toLowerCase(), i.value));
+            let shown = [];
+            let timer = null;
+            let reqId = 0;
+
+            function syncHidden() {
+                hidden.innerHTML = '';
+                chips.innerHTML = '';
+                selected.forEach(name => {
+                    const i = document.createElement('input');
+                    i.type = 'hidden'; i.name = 'brands'; i.value = name;
+                    hidden.appendChild(i);
+                    const c = document.createElement('span');
+                    c.className = 'brand-chip'; c.textContent = name;
+                    chips.appendChild(c);
+                });
+                toggle.textContent = selected.size ? ('Brands selected: ' + selected.size) : 'Filter by brand';
+            }
+
+            function render() {
+                list.innerHTML = '';
+                if (!shown.length) {
+                    const e = document.createElement('div');
+                    e.className = 'brand-filter-empty'; e.textContent = 'No brands found';
+                    list.appendChild(e);
+                    return;
+                }
+                shown.forEach(b => {
+                    const label = document.createElement('label');
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.checked = selected.has(b.name.toLowerCase());
+                    cb.addEventListener('change', () => {
+                        if (cb.checked) selected.set(b.name.toLowerCase(), b.name);
+                        else selected.delete(b.name.toLowerCase());
+                        syncHidden();
+                    });
+                    const nm = document.createElement('span'); nm.textContent = b.name;
+                    const cnt = document.createElement('span'); cnt.className = 'cnt'; cnt.textContent = b.count;
+                    label.append(cb, nm, cnt);
+                    list.appendChild(label);
+                });
+            }
+
+            async function loadBrands() {
+                const id = ++reqId;
+                try {
+                    const res = await fetch('/api/brands/' + encodeURIComponent(branch) + '?q=' + encodeURIComponent(input.value.trim()));
+                    const data = await res.json();
+                    if (id !== reqId) return;
+                    shown = data.brands || [];
+                } catch (err) {
+                    console.error('[Brands] load error:', err);
+                    shown = [];
+                }
+                render();
+            }
+
+            toggle.addEventListener('click', () => {
+                root.classList.toggle('open');
+                if (root.classList.contains('open')) { loadBrands(); input.focus(); }
+            });
+            input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(loadBrands, 250); });
+            input.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+            document.getElementById('brandSelectAll').addEventListener('click', () => {
+                shown.forEach(b => selected.set(b.name.toLowerCase(), b.name));
+                syncHidden(); render();
+            });
+            document.getElementById('brandClearAll').addEventListener('click', () => {
+                selected.clear(); syncHidden(); render();
+            });
+            document.getElementById('brandApply').addEventListener('click', () => {
+                root.classList.remove('open');
+                form.requestSubmit();
+            });
+            document.addEventListener('click', e => { if (!root.contains(e.target)) root.classList.remove('open'); });
+            syncHidden();
         })();
 
         function hideZeroStockItems() {
