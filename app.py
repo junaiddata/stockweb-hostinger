@@ -1573,6 +1573,42 @@ def ensure_alabama_stock_items_table(db_path: str):
             """)
             cur.execute("DROP TABLE stock_items_old")
 
+ALABAMA_SYNC_MAX_DELETE_RATIO = 0.5   # refuse to delete more than 50% of existing rows
+ALABAMA_SYNC_MIN_ROWS_FOR_RATIO = 20  # ratio guard only applies to tables at least this big
+
+def _sync_alabama_remove_missing(cur, df):
+    """Delete Alabama stock_items whose ItemCode is not in the uploaded file.
+    Safety: skipped if the file has no valid codes, or if it would delete
+    more than ALABAMA_SYNC_MAX_DELETE_RATIO of existing rows (likely a partial file).
+    price_overrides / datasheets are intentionally left untouched."""
+    valid_codes = {str(c).strip() for c in df["ItemCode"] if str(c).strip()}
+    if not valid_codes:
+        print("Alabama sync: no valid ItemCodes in file; skipping cleanup.")
+        return 0
+
+    cur.execute("CREATE TEMP TABLE IF NOT EXISTS _alabama_valid (ItemCode TEXT PRIMARY KEY)")
+    try:
+        cur.execute("DELETE FROM _alabama_valid")
+        cur.executemany("INSERT OR IGNORE INTO _alabama_valid (ItemCode) VALUES (?)",
+                        [(c,) for c in valid_codes])
+
+        cur.execute('SELECT COUNT(*) FROM stock_items')
+        total = cur.fetchone()[0]
+        cur.execute('SELECT COUNT(*) FROM stock_items WHERE "ItemCode" NOT IN (SELECT ItemCode FROM _alabama_valid)')
+        stale = cur.fetchone()[0]
+
+        if stale == 0:
+            return 0
+        if total >= ALABAMA_SYNC_MIN_ROWS_FOR_RATIO and stale > total * ALABAMA_SYNC_MAX_DELETE_RATIO:
+            print(f"Alabama sync: would delete {stale} of {total} items (looks like a partial file); skipping cleanup.")
+            return 0
+
+        cur.execute('DELETE FROM stock_items WHERE "ItemCode" NOT IN (SELECT ItemCode FROM _alabama_valid)')
+        print(f"Alabama sync: removed {stale} items not present in uploaded file.")
+        return stale
+    finally:
+        cur.execute("DROP TABLE IF EXISTS _alabama_valid")
+
 def update_database(branch, df, keep_admin_prices=True):
     """Persist DataFrame into per-branch DB using INSERT OR REPLACE (safe, no table drop)."""
     db_path = DB_PATHS[branch]
@@ -1612,6 +1648,15 @@ def update_database(branch, df, keep_admin_prices=True):
 
         for _, row in df.iterrows():
             cur.execute(sql, tuple(row[c] for c in columns))
+
+        # ALABAMA ONLY: the uploaded file is the full source of truth, so remove
+        # items that are no longer in it. Other branches are untouched.
+        if branch == "ALABAMA":
+            try:
+                _sync_alabama_remove_missing(cur, df)
+            except Exception as e:
+                # Never fail the upload because of the cleanup step
+                print(f"Alabama sync cleanup skipped due to error: {e}")
 
     ensure_override_table(db_path)
 
